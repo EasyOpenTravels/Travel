@@ -65,7 +65,7 @@ def home():
 @bp.get('/search')
 def search():
     q=request.args.get('q','').strip()
-    db=get_db(); trips=[]; destinations=[]
+    db=get_db(); trips=[]; destinations=[]; services=[]
     if q:
         like='%'+q+'%'
         trips=db.execute("SELECT * FROM trips WHERE status='published' AND (title LIKE ? OR destination LIKE ? OR description LIKE ?) ORDER BY date LIMIT 24",(like,like,like)).fetchall()
@@ -221,7 +221,8 @@ def account():
     bookings=db.execute('SELECT b.*,t.title,t.date,t.destination,t.cover_image FROM bookings b JOIN trips t ON t.id=b.trip_id WHERE b.user_id=? ORDER BY b.id DESC',(u['id'],)).fetchall()
     suggestions=db.execute("SELECT * FROM trips WHERE status='published' ORDER BY date LIMIT 6").fetchall()
     posts=db.execute('SELECT * FROM posts WHERE published=1 ORDER BY id DESC LIMIT 5').fetchall()
-    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts)
+    service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id WHERE sr.user_id=? ORDER BY sr.id DESC',(u['id'],)).fetchall()
+    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts,service_requests=service_requests)
 
 @bp.route('/contact',methods=['GET','POST'])
 def contact():
@@ -238,6 +239,33 @@ def vote(trip_id):
         try: db.execute('INSERT INTO votes(trip_id,voter_key,rating,choice,comment,created_at) VALUES(?,?,?,?,?,?)',(trip_id,key,rating,choice,request.form.get('comment','').strip(),now())); db.commit(); flash('Vote saved.','success')
         except sqlite3.IntegrityError: flash('One vote per adventure is enough.','error')
     stats=db.execute('SELECT COUNT(*) n,ROUND(AVG(rating),1) avg FROM votes WHERE trip_id=?',(trip_id,)).fetchone(); return render_template('vote.html',trip=t,stats=stats)
+
+@bp.get('/services')
+def services():
+    rows=get_db().execute('SELECT * FROM services WHERE published=1 ORDER BY sort_order,id').fetchall()
+    return render_template('services.html',services=rows)
+
+@bp.get('/service/<slug>')
+def service(slug):
+    row=get_db().execute('SELECT * FROM services WHERE slug=? AND published=1',(slug,)).fetchone()
+    if not row: abort(404)
+    return render_template('service.html',service=row)
+
+@bp.route('/service/<slug>/request',methods=['GET','POST'])
+def service_request(slug):
+    row=get_db().execute('SELECT * FROM services WHERE slug=? AND published=1',(slug,)).fetchone()
+    if not row: abort(404)
+    if not session.get('user_id'):
+        session['next_url']=request.path
+        return redirect(url_for('public.register',next=request.path))
+    u=get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL',(session['user_id'],)).fetchone()
+    if request.method=='POST':
+        try: guests=max(1,min(100000,int(request.form.get('guest_count','1'))))
+        except ValueError: guests=1
+        db=get_db()
+        db.execute('INSERT INTO service_requests(service_id,user_id,name,email,phone,event_date,guest_count,ticketing,budget,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(row['id'],u['id'],request.form.get('name',u['name']).strip(),request.form.get('email',u['email']).strip().lower(),request.form.get('phone',u['phone']).strip(),request.form.get('event_date','').strip(),guests,1 if request.form.get('ticketing')=='1' else 0,request.form.get('budget','').strip(),request.form.get('notes','').strip(),now()))
+        db.commit(); flash('Request sent. The Adventure Team has it.','success'); return redirect(url_for('public.account'))
+    return render_template('service_request.html',service=row,user=u)
 
 @bp.get('/post/<int:post_id>')
 def post(post_id):

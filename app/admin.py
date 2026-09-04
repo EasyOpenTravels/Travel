@@ -52,8 +52,8 @@ def dashboard():
         'messages':db.execute("SELECT COUNT(*) n FROM messages WHERE status='unread'").fetchone()['n'],
     }
     rows={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
-    trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall()
-    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts)
+    trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall(); services=db.execute('SELECT * FROM services ORDER BY sort_order,id').fetchall(); service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC LIMIT 12').fetchall()
+    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests)
 
 @admin_bp.route('/trips/new',methods=['GET','POST'])
 @admin_bp.route('/trips/<int:trip_id>/edit',methods=['GET','POST'])
@@ -103,6 +103,37 @@ def post_edit(post_id=None):
         else: db.execute('INSERT INTO posts(title,excerpt,body,image,media_url,category,published,created_at) VALUES(?,?,?,?,?,?,?,?)',(title,excerpt,body,image,media,category,published,now()))
         db.commit(); flash('Road post published.','success'); return redirect(url_for('admin.dashboard'))
     return render_template('admin_post.html',post=p)
+
+@admin_bp.route('/services/new',methods=['GET','POST'])
+@admin_bp.route('/services/<int:service_id>/edit',methods=['GET','POST'])
+def service_edit(service_id=None):
+    g=guard()
+    if g:return g
+    db=get_db(); svc=db.execute('SELECT * FROM services WHERE id=?',(service_id,)).fetchone() if service_id else None
+    if request.method=='POST':
+        title=request.form.get('title','').strip(); category=request.form.get('category','Events').strip(); subtitle=request.form.get('subtitle','').strip(); description=request.form.get('description','').strip(); image=request.form.get('cover_image','').strip(); accent=request.form.get('accent','lime').strip(); ticketing=1 if request.form.get('ticketing_available')=='1' else 0; published=1 if request.form.get('published')=='1' else 0
+        if not title or not subtitle or not description: flash('Give the service a title, subtitle and description.','error'); return render_template('admin_service.html',service=svc)
+        slug=svc['slug'] if svc else unique_slug(db,title,'services')
+        if service_id: db.execute('UPDATE services SET category=?,title=?,subtitle=?,description=?,cover_image=?,accent=?,ticketing_available=?,published=? WHERE id=?',(category,title,subtitle,description,image,accent,ticketing,published,service_id))
+        else:
+            n=db.execute('SELECT COALESCE(MAX(sort_order),0)+1 n FROM services').fetchone()['n']; db.execute('INSERT INTO services(slug,category,title,subtitle,description,cover_image,accent,ticketing_available,published,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(slug,category,title,subtitle,description,image,accent,ticketing,published,n,now()))
+        db.commit(); flash('Service saved.','success'); return redirect(url_for('admin.dashboard'))
+    return render_template('admin_service.html',service=svc)
+
+@admin_bp.get('/service-requests')
+def service_requests():
+    g=guard()
+    if g:return g
+    rows=get_db().execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC').fetchall()
+    return render_template('admin_service_requests.html',requests=rows)
+
+@admin_bp.post('/service-requests/<int:request_id>/status')
+def service_request_status(request_id):
+    g=guard()
+    if g:return g
+    status=request.form.get('status','new')
+    if status not in ('new','contacted','planning','complete','closed'): abort(400)
+    db=get_db(); db.execute('UPDATE service_requests SET status=? WHERE id=?',(status,request_id)); db.commit(); flash('Service request updated.','success'); return redirect(url_for('admin.service_requests'))
 
 @admin_bp.post('/settings')
 def settings():

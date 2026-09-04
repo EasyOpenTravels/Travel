@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS posts (
  image TEXT DEFAULT '', media_url TEXT DEFAULT '', category TEXT NOT NULL DEFAULT 'From the road',
  published INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS services (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL,
+ subtitle TEXT NOT NULL, description TEXT NOT NULL, cover_image TEXT DEFAULT '', accent TEXT DEFAULT 'lime',
+ ticketing_available INTEGER NOT NULL DEFAULT 0, published INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS service_requests (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, service_id INTEGER NOT NULL, user_id INTEGER, name TEXT NOT NULL, email TEXT NOT NULL,
+ phone TEXT NOT NULL, event_date TEXT DEFAULT '', guest_count INTEGER NOT NULL DEFAULT 1, ticketing INTEGER NOT NULL DEFAULT 0,
+ budget TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL,
+ FOREIGN KEY(service_id) REFERENCES services(id), FOREIGN KEY(user_id) REFERENCES users(id)
+);
 '''
 
 def get_db():
@@ -144,6 +155,20 @@ def init_db(app):
             ]
             for slug,title,dest,desc,dt,price,cap,pickup,itinerary,inc,exc,img,status in trips:
                 db.execute('INSERT INTO trips(slug,title,destination,description,date,price,capacity,pickup,itinerary,included,excluded,cover_image,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime(\'now\'))',(slug,title,dest,desc,dt,price,cap,pickup,itinerary,inc,exc,img,status))
+
+        if db.execute('SELECT COUNT(*) n FROM services').fetchone()['n'] == 0:
+            services = [
+                ('birthdays','Celebrations','Birthday adventures','A day out, a private plan or a surprise worth remembering.','Tell us the mood and the guest count. We can help shape the plan, logistics and optional ticketing.','https://commons.wikimedia.org/wiki/Special:FilePath/Diani_Beach,_Kenya.jpg','orange',1,1,1),
+                ('weddings','Celebrations','Weddings & receptions','From guest flow to digital invitations and QR entry, keep the important day beautiful and organised.','We can support the event flow or simply provide the ticketing layer.','https://commons.wikimedia.org/wiki/Special:FilePath/Diani_Beach,_Kenya.jpg','pink',1,1,2),
+                ('graduations','Events','Graduations & campus','Big finish. Easy guest handling. A clean way to manage who comes in.','Perfect for graduation parties, campus dinners, class events and after-parties.','https://commons.wikimedia.org/wiki/Special:FilePath/University_of_Nairobi.jpg','blue',1,1,3),
+                ('private-parties','Events','Private parties','Birthdays, reunions, house events, dinners and the plans nobody wants to coordinate in a group chat.','Bring the idea. We help make the practical bits simple.','https://commons.wikimedia.org/wiki/Special:FilePath/Kenya,_Hell%27s_Gate_(45282893295).jpg','lime',1,1,4),
+                ('retreats','Groups','Retreats & team days','Schools, teams, clubs and organisations can hand us the planning brief.','We can help with location ideas, transport, schedules, attendee handling and tickets.','https://commons.wikimedia.org/wiki/Special:FilePath/Kakamega_Forest.jpg','aqua',1,1,5),
+                ('event-ticketing','Ticketing','Ticketing for your own event','Already organised? Keep your event. Let us handle the digital passes and QR entry.','Branded tickets, attendee records and one-time scan validation.','https://commons.wikimedia.org/wiki/Special:FilePath/Nairobi_city_view.jpg','teal',1,1,6),
+                ('corporate-days','Groups','Corporate & organisation days','Team days, launches, socials and staff experiences that need someone to own the details.','Useful when you want one place to coordinate the practical flow.','https://commons.wikimedia.org/wiki/Special:FilePath/Amboseli_National_Park,_Kenya.jpg','yellow',1,1,7),
+                ('just-an-idea','Open brief','Got an idea?','Not sure what category it belongs in? Start anyway.','Tell us what you want to happen and we will help find the shape of it.','https://commons.wikimedia.org/wiki/Special:FilePath/Ngare_Ndare_Forest.jpg','white',1,1,8),
+            ]
+            for slug,category,title,subtitle,description,img,accent,ticketing,published,order in services:
+                db.execute("INSERT INTO services(slug,category,title,subtitle,description,cover_image,accent,ticketing_available,published,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,datetime('now'))", (slug,category,title,subtitle,description,img,accent,ticketing,published,order))
 
         if db.execute('SELECT COUNT(*) n FROM posts').fetchone()['n'] == 0:
             db.execute('INSERT INTO posts(title,excerpt,body,image,media_url,category,published,created_at) VALUES(?,?,?,?,?,?,?,datetime(\'now\'))', (
