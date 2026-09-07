@@ -11,8 +11,8 @@
   <button class="menu-button" type="button" aria-label="Open menu" aria-expanded="false" onclick="toggleRoadMenu()"><span></span><span></span><span></span></button>
   <a class="brand" href="{{ url_for('public.home') }}"><span class="brand-mark">OR</span><span>OPEN ROAD</span></a>
   <form class="search" action="{{ url_for('public.search') }}"><input name="q" value="{{ request.args.get('q','') }}" placeholder="Search a place, mood, trip or event"><button aria-label="Search">⌕</button></form>
-  <nav class="desktop-nav"><a href="{{ url_for('public.home') }}">Explore</a><a href="{{ url_for('public.services') }}">Make it happen</a><a href="{{ url_for('public.ticketing_home') }}">Ticketing</a><a href="{{ url_for('public.contact') }}">Talk to us</a>{% if session.get('user_id') %}<a class="nav-hot" href="{{ url_for('public.account') }}">My adventure</a>{% else %}<a class="nav-hot" href="{{ url_for('public.register') }}">Register</a>{% endif %}</nav>
-  <div class="mobile-nav-actions"><a class="mobile-register" href="{{ url_for('public.account') if session.get('user_id') else url_for('public.register') }}">{{ 'My adventure' if session.get('user_id') else 'Register' }}</a></div>
+  <nav class="desktop-nav"><a href="{{ url_for('public.home') }}">Explore</a><a href="{{ url_for('public.services') }}">Make it happen</a><a class="nav-ticket" href="{{ url_for('public.ticketing_home') }}">Tickets</a><a href="{{ url_for('public.contact') }}">Talk to us</a>{% if session.get('user_id') %}<a class="nav-hot" href="{{ url_for('public.account') }}">My adventure</a>{% else %}<a class="nav-hot" href="{{ url_for('public.register') }}">Register</a>{% endif %}</nav>
+  <div class="mobile-nav-actions"><a class="mobile-tickets" href="{{ url_for('public.ticketing_home') }}">Tickets</a><a class="mobile-register" href="{{ url_for('public.account') if session.get('user_id') else url_for('public.register') }}">{{ 'My adventure' if session.get('user_id') else 'Register' }}</a></div>
 </header>
 <div class="road-menu" id="roadMenu" aria-hidden="true">
   <div class="road-menu-shade" onclick="toggleRoadMenu(false)"></div>
