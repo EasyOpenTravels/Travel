@@ -1,4 +1,4 @@
-import re, secrets, sqlite3, os
+import re, secrets, sqlite3, os, hmac
 from datetime import datetime, timezone
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
@@ -162,6 +162,143 @@ def scan_ticket(code):
 
 
 # ---------------------------------------------------------------------------
+# GROUP RETREATS
+# A lightweight group-planning workflow, independent of ordinary travel bookings.
+def _new_group_code(db):
+    while True:
+        code='GRP-' + secrets.token_hex(3).upper()
+        if not db.execute('SELECT 1 FROM group_retreats WHERE group_code=?',(code,)).fetchone():
+            return code
+
+def _new_group_pass_code(db):
+    while True:
+        code='GTP-' + secrets.token_hex(6).upper()
+        if not db.execute('SELECT 1 FROM group_members WHERE pass_code=?',(code,)).fetchone():
+            return code
+
+def _group_row(code):
+    return get_db().execute('SELECT * FROM group_retreats WHERE group_code=? AND active=1',(code.upper().strip(),)).fetchone()
+
+def _group_pass_signature(code):
+    return ticket_signature(code)
+
+@bp.route('/group-retreats', methods=['GET','POST'])
+def group_retreats():
+    db=get_db()
+    if request.method=='POST':
+        leader_name=request.form.get('leader_name','').strip()
+        leader_phone=request.form.get('leader_phone','').strip()
+        leader_email=request.form.get('leader_email','').strip().lower()
+        title=request.form.get('title','').strip()
+        group_type=request.form.get('group_type','Group').strip() or 'Group'
+        destination=request.form.get('destination','').strip()
+        activities=request.form.get('activities','').strip()
+        preferred_date=request.form.get('preferred_date','').strip()
+        people=max(0,int(request.form.get('people_count','0') or 0))
+        try: suggested=max(0,int(request.form.get('suggested_price','0') or 0))
+        except ValueError: suggested=0
+        notes=request.form.get('notes','').strip()
+        pin=request.form.get('leader_pin','').strip()
+        if not leader_name or not leader_phone or not title or not destination or not activities or people<5:
+            flash('Give the useful details and plan for at least 5 people.','error'); return render_template('group_retreats.html')
+        if not pin.isdigit() or not 4<=len(pin)<=8:
+            flash('Choose a 4–8 digit Group Leader PIN.','error'); return render_template('group_retreats.html')
+        code=_new_group_code(db)
+        db.execute("INSERT INTO group_retreats(group_code,leader_pin_hash,leader_user_id,leader_name,leader_phone,leader_email,title,group_type,destination,activities,preferred_date,people_count,suggested_price,notes,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (code,hash_pin(pin),session.get('user_id'),leader_name,leader_phone,leader_email,title,group_type,destination,activities,preferred_date,people,suggested,notes,'pending',now()))
+        db.commit(); flash('Group plan created. Save the Group ID and Leader PIN.','success'); return redirect(url_for('public.group_manage',code=code))
+    return render_template('group_retreats.html')
+
+@bp.get('/group-retreats/group/<code>')
+def group_public(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    return render_template('group_public.html',group=group)
+
+@bp.post('/group-retreats/group/<code>/join')
+def group_join(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower()
+    if not name or gender not in {'male','female'}:
+        flash('Enter the member name and choose male or female.','error'); return redirect(url_for('public.group_public',code=code))
+    if group['status'] not in {'approved','active'}:
+        flash('This group plan is not approved for members yet.','error'); return redirect(url_for('public.group_public',code=code))
+    db=get_db(); pc=_new_group_pass_code(db)
+    sig=_group_pass_signature(pc)
+    db.execute("INSERT INTO group_members(retreat_id,name,gender,payment_status,pass_type,pass_code,signature,created_at) VALUES(?,?,?,?,?,?,?,?)",
+               (group['id'],name,gender,'pending','individual',pc,sig,now()))
+    db.commit(); flash('You joined the group list. Payment still needs approval before your pass unlocks.','success'); return redirect(url_for('public.group_public',code=code))
+
+@bp.route('/group-retreats/manage/<code>',methods=['GET','POST'])
+def group_manage(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    authenticated=session.get('group_leader_code')==group['group_code'] or (session.get('user_id') and session.get('user_id')==group['leader_user_id'])
+    if request.method=='POST' and request.form.get('action')=='unlock':
+        if verify_pin(group['leader_pin_hash'],request.form.get('leader_pin','').strip()):
+            session['group_leader_code']=group['group_code']; authenticated=True
+        else: flash('That Group Leader PIN is not correct.','error')
+    if not authenticated: return render_template('group_unlock.html',group=group)
+    db=get_db(); members=db.execute('SELECT * FROM group_members WHERE retreat_id=? ORDER BY id',(group['id'],)).fetchall()
+    counts={
+        'members':len(members),
+        'paid':sum(1 for m in members if m['payment_status']=='approved'),
+        'submitted':sum(1 for m in members if m['payment_status']=='submitted')
+    }
+    return render_template('group_manage.html',group=group,members=members,counts=counts)
+
+@bp.post('/group-retreats/manage/<code>/member')
+def group_add_member(code):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    if group['status'] not in {'approved','active'}:
+        flash('The group plan must be approved before members are added.','error'); return redirect(url_for('public.group_manage',code=code))
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower()
+    try: amount=max(0,int(request.form.get('amount','0') or 0))
+    except ValueError: amount=0
+    reference=request.form.get('payment_reference','').strip()
+    if not name or gender not in {'male','female'}:
+        flash('Enter the member name and gender.','error'); return redirect(url_for('public.group_manage',code=code))
+    db=get_db(); pc=_new_group_pass_code(db)
+    db.execute("INSERT INTO group_members(retreat_id,name,gender,amount_paid,payment_reference,payment_status,pass_type,pass_code,signature,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+               (group['id'],name,gender,amount,reference,'submitted' if amount and reference else 'pending','individual',pc,_group_pass_signature(pc),now()))
+    db.commit(); flash('Member added. Payment can now be approved.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.post('/group-retreats/manage/<code>/edit')
+def group_edit(code):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    try: people=max(5,int(request.form.get('people_count','5') or 5)); suggested=max(0,int(request.form.get('suggested_price','0') or 0))
+    except ValueError: people=5; suggested=0
+    db=get_db(); db.execute("UPDATE group_retreats SET title=?,group_type=?,destination=?,activities=?,preferred_date=?,people_count=?,suggested_price=?,notes=? WHERE id=?",
+        (request.form.get('title','').strip(),request.form.get('group_type','Group').strip() or 'Group',request.form.get('destination','').strip(),request.form.get('activities','').strip(),request.form.get('preferred_date','').strip(),people,suggested,request.form.get('notes','').strip(),group['id']))
+    db.commit(); flash('Group plan updated.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.get('/group-retreats/pass/<pass_code>/download')
+def group_pass_download(pass_code):
+    db=get_db(); row=db.execute("SELECT m.*,g.title,g.destination,g.preferred_date,g.group_code FROM group_members m JOIN group_retreats g ON g.id=m.retreat_id WHERE m.pass_code=? AND g.active=1",(pass_code,)).fetchone()
+    if not row: abort(404)
+    if row['payment_status']!='approved': flash('This pass is not approved yet.','error'); return redirect(url_for('public.group_public',code=row['group_code']))
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+    import io
+    buf=io.BytesIO(); c=canvas.Canvas(buf,pagesize=A4); w,h=A4
+    c.setFillColorRGB(.07,.13,.17); c.rect(0,h-150,w,150,fill=1,stroke=0); c.setFillColorRGB(1,1,1); c.setFont('Helvetica-Bold',22); c.drawString(40,h-58,'GROUP PASS'); c.setFont('Helvetica-Bold',10); c.drawString(40,h-82,row['group_code'])
+    c.setFillColorRGB(.08,.08,.08); c.setFont('Helvetica-Bold',25); c.drawString(40,h-205,row['name']); c.setFont('Helvetica',12); c.drawString(40,h-232,f"{row['title']} · {row['destination']}"); c.drawString(40,h-252,row['preferred_date'] or 'Date to be confirmed')
+    qr=make_qr_bytes(url_for('public.group_pass_verify',pass_code=row['pass_code'],sig=row['signature'],_external=True)); c.drawImage(ImageReader(io.BytesIO(qr)),w-210,h-400,width=150,height=150,mask='auto'); c.setFont('Helvetica-Bold',10); c.drawString(40,h-320,'APPROVED GROUP MEMBER'); c.setFont('Helvetica',10); c.drawString(40,h-340,'Present this pass for the group activity.'); c.showPage(); c.save(); buf.seek(0)
+    return send_file(buf,as_attachment=True,download_name=f"{row['group_code']}-{row['name'].replace(' ','-')}.pdf",mimetype='application/pdf')
+
+@bp.get('/group-retreats/pass/<pass_code>')
+def group_pass_verify(pass_code):
+    sig=request.args.get('sig',''); db=get_db(); row=db.execute("SELECT m.*,g.title,g.destination,g.preferred_date,g.group_code FROM group_members m JOIN group_retreats g ON g.id=m.retreat_id WHERE m.pass_code=? AND g.active=1",(pass_code,)).fetchone()
+    if not row or not hmac.compare_digest(row['signature'],sig): return render_template('group_scan_result.html',valid=False,member=row,reason='Invalid group pass.')
+    if row['payment_status']!='approved': return render_template('group_scan_result.html',valid=False,member=row,reason='Payment is not approved yet.')
+    if row['checked_in_at']: return render_template('group_scan_result.html',valid=False,member=row,reason='This group pass has already been checked.')
+    db.execute('UPDATE group_members SET checked_in_at=? WHERE id=? AND checked_in_at IS NULL',(now(),row['id'])); db.commit(); return render_template('group_scan_result.html',valid=True,member=row)
+
+# ---------------------------------------------------------------------------
 # EVENT TICKETING
 # Deliberately separate from ordinary Travel Tickets.
 def event_ticket_owner(event):
@@ -281,6 +418,65 @@ def ticketing_host():
         flash('Event created. You now have a private host desk for it.','success')
         return redirect(url_for('public.event_manage',event_id=cur.lastrowid))
     return render_template('ticketing_host.html')
+
+@bp.post('/ticketing/event/<int:event_id>/joint-ticket')
+def event_joint_ticket(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    raw=request.form.getlist('ticket_ids')
+    ids=[]
+    for x in raw:
+        try: ids.append(int(x))
+        except ValueError: pass
+    ids=list(dict.fromkeys(ids))
+    if len(ids)<2:
+        flash('Select at least two approved VIP or VVIP tickets.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    q=','.join('?'*len(ids)); rows=db.execute(f"SELECT * FROM event_tickets WHERE event_id=? AND id IN ({q}) AND approval_status='approved' AND ticket_status='valid'", [event_id,*ids]).fetchall()
+    if len(rows)!=len(ids):
+        flash('Only approved, unused tickets can be joined.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    tiers={r['ticket_tier'].lower() for r in rows}
+    if tiers not in ({'vip'},{'vvip'}):
+        flash('Joint tickets are for VIP or VVIP members of the same tier.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    joint_code='JNT-'+secrets.token_hex(7).upper(); sig=ticket_signature(joint_code)
+    db.execute('INSERT INTO event_joint_tickets(event_id,joint_code,signature,tier,ticket_codes,created_at) VALUES(?,?,?,?,?,?)',(event_id,joint_code,sig,next(iter(tiers)),','.join(r['ticket_code'] for r in rows),now())); db.commit()
+    flash('Joint ticket created. Download the single pass for this VIP/VVIP group.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.get('/ticketing/joint/<joint_code>/download')
+def event_joint_download(joint_code):
+    db=get_db(); j=db.execute('SELECT j.*,e.title event_title,e.event_date,e.event_time,e.venue,e.currency FROM event_joint_tickets j JOIN event_ticket_events e ON e.id=j.event_id WHERE j.joint_code=? AND e.active=1',(joint_code,)).fetchone()
+    if not j: abort(404)
+    codes=[c for c in j['ticket_codes'].split(',') if c]
+    if not codes: abort(404)
+    q=','.join('?'*len(codes)); rows=db.execute(f'SELECT * FROM event_tickets WHERE event_id=? AND ticket_code IN ({q}) ORDER BY id',[j['event_id'],*codes]).fetchall()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from io import BytesIO
+    buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4)
+    c.setFillColorRGB(.07,.13,.17); c.rect(0,H-150,W,150,fill=1,stroke=0); c.setFillColorRGB(1,1,1); c.setFont('Helvetica-Bold',22); c.drawString(40,H-58,'JOINT EVENT TICKET'); c.setFont('Helvetica-Bold',10); c.drawString(40,H-82,j['joint_code'])
+    c.setFillColorRGB(.08,.08,.08); c.setFont('Helvetica-Bold',24); c.drawString(40,H-205,j['event_title'][:36]); c.setFont('Helvetica',11); c.drawString(40,H-228,f"{j['event_date'] or 'TBA'} {j['event_time'] or ''}".strip()); c.drawString(40,H-246,j['venue'] or 'Venue TBA'); c.setFont('Helvetica-Bold',15); c.drawString(40,H-285,j['tier'].upper())
+    y=H-325; c.setFont('Helvetica-Bold',10); c.drawString(40,y,'NAMES ON THIS PASS'); y-=20; c.setFont('Helvetica',10)
+    for idx,r in enumerate(rows,1): c.drawString(45,y,f'{idx}. {r["attendee_name"]}'); y-=17
+    qr=make_qr_bytes(url_for('public.event_joint_verify',joint_code=j['joint_code'],sig=j['signature'],_external=True)); c.drawImage(ImageReader(BytesIO(qr)),W-215,H-440,width=150,height=150,mask='auto'); c.setFont('Helvetica-Bold',9); c.drawString(40,55,'ONE JOINT QR · SERVER VERIFIED · ALL NAMES ENTER TOGETHER'); c.showPage(); c.save(); buf.seek(0)
+    safe=re.sub(r'[^A-Za-z0-9_-]','-',j['event_title']); return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=f'{safe}-{j["joint_code"]}.pdf')
+
+@bp.get('/ticketing/joint/<joint_code>')
+def event_joint_verify(joint_code):
+    sig=request.args.get('sig',''); db=get_db()
+    db.execute('BEGIN IMMEDIATE')
+    j=db.execute('SELECT j.*,e.title event_title,e.event_date,e.event_time,e.venue FROM event_joint_tickets j JOIN event_ticket_events e ON e.id=j.event_id WHERE j.joint_code=? AND e.active=1',(joint_code,)).fetchone()
+    if not j or not hmac.compare_digest(j['signature'],sig): db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket is not valid.')
+    if j['status']!='valid': db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket has already been approved at the entrance.')
+    codes=[c for c in j['ticket_codes'].split(',') if c]; q=','.join('?'*len(codes)); rows=db.execute(f'SELECT * FROM event_tickets WHERE event_id=? AND ticket_code IN ({q})',[j['event_id'],*codes]).fetchall()
+    if len(rows)!=len(codes) or any(r['ticket_status']!='valid' for r in rows): db.rollback(); return render_template('event_scan_result.html',valid=False,reason='One or more tickets in this joint pass are no longer valid.')
+    cur=db.execute("UPDATE event_joint_tickets SET status='used',used_at=? WHERE id=? AND status='valid'",(now(),j['id']))
+    if cur.rowcount!=1: db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket was just approved at another scanner.')
+    stamp=now()
+    for r in rows: db.execute("UPDATE event_tickets SET ticket_status='used',checked_in_at=? WHERE id=? AND ticket_status='valid'",(stamp,r['id']))
+    db.commit(); return render_template('event_scan_result.html',valid=True,ticket={'attendee_name':'Joint '+j['tier'].upper(),'ticket_tier':j['tier'],'event_title':j['event_title'],'event_date':j['event_date'],'venue':j['venue']})
 
 @bp.get('/ticketing/event/<slug>')
 def event_public(slug):
@@ -428,7 +624,8 @@ def event_manage(event_id):
     if not event: abort(404)
     if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
     tickets=db.execute('SELECT * FROM event_tickets WHERE event_id=? ORDER BY CASE WHEN ticket_status=\'used\' THEN 2 WHEN approval_status=\'pending\' THEN 0 ELSE 1 END,id DESC',(event_id,)).fetchall()
-    return render_template('event_manage.html',event=event,tickets=tickets)
+    joints=db.execute('SELECT * FROM event_joint_tickets WHERE event_id=? ORDER BY id DESC',(event_id,)).fetchall()
+    return render_template('event_manage.html',event=event,tickets=tickets,joints=joints)
 
 @bp.post('/ticketing/event/<int:event_id>/approve/<int:ticket_id>')
 def event_approve(event_id,ticket_id):

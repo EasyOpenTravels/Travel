@@ -1,4 +1,4 @@
-import os, re, shutil, sqlite3, hmac, secrets
+import os, re, shutil, sqlite3, hmac, secrets, zipfile, pathlib
 from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
@@ -171,6 +171,40 @@ def booking_status(booking_id):
     db=get_db(); db.execute('UPDATE bookings SET payment_status=?,paid_at=? WHERE id=?',(status,now() if status in ('paid','confirmed') else None,booking_id)); db.commit(); flash('Booking status updated.','success'); return redirect(url_for('admin.bookings'))
 
 
+@admin_bp.get('/group-retreats')
+def group_retreats_admin():
+    g=guard()
+    if g:return g
+    db=get_db(); groups=db.execute("SELECT g.*,COUNT(m.id) member_count,SUM(CASE WHEN m.payment_status='submitted' THEN 1 ELSE 0 END) submitted_count,SUM(CASE WHEN m.payment_status='approved' THEN 1 ELSE 0 END) approved_count FROM group_retreats g LEFT JOIN group_members m ON m.retreat_id=g.id GROUP BY g.id ORDER BY g.id DESC").fetchall()
+    members=db.execute('SELECT * FROM group_members ORDER BY retreat_id,id').fetchall()
+    g_member_rows={}
+    for m in members: g_member_rows.setdefault(m['retreat_id'],[]).append(m)
+    return render_template('admin_group_retreats.html',groups=groups,g_member_rows=g_member_rows)
+
+@admin_bp.post('/group-retreats/<int:group_id>/status')
+def group_retreat_status(group_id):
+    g=guard()
+    if g:return g
+    status=request.form.get('status','pending')
+    if status not in {'pending','approved','active','completed','cancelled'}: abort(400)
+    try: agreed=max(0,int(request.form.get('agreed_price','0') or 0))
+    except ValueError: agreed=0
+    db=get_db(); db.execute('UPDATE group_retreats SET status=?,agreed_price=?,approved_at=? WHERE id=?',(status,agreed,now() if status=='approved' else None,group_id)); db.commit(); flash('Group retreat updated.','success'); return redirect(url_for('admin.group_retreats_admin'))
+
+@admin_bp.post('/group-retreats/<int:group_id>/member/<int:member_id>/payment')
+def group_member_payment_admin(group_id,member_id):
+    g=guard()
+    if g:return g
+    status=request.form.get('status','pending')
+    if status not in {'pending','approved','rejected'}: abort(400)
+    db=get_db(); db.execute('UPDATE group_members SET payment_status=? WHERE id=? AND retreat_id=?',(status,member_id,group_id)); db.commit(); flash('Member payment updated.','success'); return redirect(url_for('admin.group_retreats_admin'))
+
+@admin_bp.post('/group-retreats/<int:group_id>/delete')
+def group_retreat_delete(group_id):
+    g=guard()
+    if g:return g
+    db=get_db(); db.execute('DELETE FROM group_members WHERE retreat_id=?',(group_id,)); db.execute('DELETE FROM group_retreats WHERE id=?',(group_id,)); db.commit(); flash('Group retreat deleted.','success'); return redirect(url_for('admin.group_retreats_admin'))
+
 @admin_bp.get('/event-ticketing')
 def event_ticketing():
     g=guard()
@@ -246,20 +280,43 @@ def upload():
 def backup():
     g=guard()
     if g:return g
-    db=get_db(); db.execute('PRAGMA wal_checkpoint(FULL)'); db.commit(); path=current_app.config['DATABASE_PATH']; return send_file(path,as_attachment=True,download_name='open-road-adventures-backup.sqlite3',mimetype='application/x-sqlite3')
+    db=get_db(); db.execute('PRAGMA wal_checkpoint(FULL)'); db.commit()
+    db_path=current_app.config['DATABASE_PATH']; upload=current_app.config['UPLOAD_FOLDER']; buf=io.BytesIO()
+    with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
+        z.write(db_path,'database/adventures.sqlite3')
+        if os.path.isdir(upload):
+            for path in pathlib.Path(upload).rglob('*'):
+                if path.is_file(): z.write(path,'uploads/'+path.relative_to(upload).as_posix())
+    buf.seek(0); return send_file(buf,as_attachment=True,download_name='travel-full-backup.zip',mimetype='application/zip')
 
 @admin_bp.post('/restore')
 def restore():
     g=guard()
     if g:return g
     f=request.files.get('backup')
-    if not f: flash('Choose a SQLite backup.','error'); return redirect(url_for('admin.dashboard'))
-    temp=current_app.config['DATABASE_PATH']+'.restore'
+    if not f: flash('Choose a full .zip backup from this system.','error'); return redirect(url_for('admin.dashboard'))
+    temp_dir=os.path.join(current_app.instance_path,'restore_tmp_'+secrets.token_hex(4)); os.makedirs(temp_dir,exist_ok=True); temp_zip=os.path.join(temp_dir,'backup.zip')
     try:
-        f.save(temp); conn=sqlite3.connect(temp); conn.execute('PRAGMA integrity_check'); conn.executescript(SCHEMA); conn.commit(); conn.close();
-        conn=get_db(); conn.close(); g.pop('db', None); shutil.copy2(temp,current_app.config['DATABASE_PATH']); flash('Backup restored. Reload the dashboard.','success')
+        f.save(temp_zip)
+        with zipfile.ZipFile(temp_zip) as z:
+            names=z.namelist()
+            if 'database/adventures.sqlite3' not in names: raise ValueError('The backup does not contain the system database.')
+            for name in names:
+                p=pathlib.PurePosixPath(name)
+                if p.is_absolute() or '..' in p.parts: raise ValueError('Unsafe backup path.')
+            z.extractall(temp_dir)
+        restored=os.path.join(temp_dir,'database','adventures.sqlite3'); test=sqlite3.connect(restored); result=test.execute('PRAGMA integrity_check').fetchone()[0]; test.executescript(SCHEMA); test.commit(); test.close()
+        if result!='ok': raise ValueError('Database integrity check failed.')
+        conn=get_db(); conn.close(); g.pop('db',None); shutil.copy2(restored,current_app.config['DATABASE_PATH'])
+        restore_upload=os.path.join(temp_dir,'uploads')
+        if os.path.isdir(restore_upload):
+            shutil.rmtree(current_app.config['UPLOAD_FOLDER'],ignore_errors=True)
+            os.makedirs(current_app.config['UPLOAD_FOLDER'],exist_ok=True)
+            for path in pathlib.Path(restore_upload).rglob('*'):
+                if path.is_file():
+                    dest=pathlib.Path(current_app.config['UPLOAD_FOLDER'])/path.relative_to(restore_upload); dest.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(path,dest)
+        flash('Full backup restored successfully.','success')
     except Exception as exc: flash('Restore rejected: '+str(exc),'error')
-    finally:
-        try:os.remove(temp)
-        except OSError:pass
+    finally: shutil.rmtree(temp_dir,ignore_errors=True)
     return redirect(url_for('admin.dashboard'))
+

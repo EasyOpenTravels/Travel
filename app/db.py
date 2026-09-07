@@ -88,6 +88,57 @@ CREATE TABLE IF NOT EXISTS event_ticket_events (
  created_at TEXT NOT NULL,
  FOREIGN KEY(owner_user_id) REFERENCES users(id)
 );
+CREATE TABLE IF NOT EXISTS event_joint_tickets (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ event_id INTEGER NOT NULL,
+ joint_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ tier TEXT NOT NULL,
+ ticket_codes TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'valid',
+ used_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(event_id) REFERENCES event_ticket_events(id)
+);
+CREATE TABLE IF NOT EXISTS group_retreats (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ group_code TEXT UNIQUE NOT NULL,
+ leader_pin_hash TEXT NOT NULL,
+ leader_user_id INTEGER,
+ leader_name TEXT NOT NULL,
+ leader_phone TEXT NOT NULL,
+ leader_email TEXT DEFAULT '',
+ title TEXT NOT NULL,
+ group_type TEXT NOT NULL DEFAULT 'Group',
+ destination TEXT NOT NULL,
+ activities TEXT NOT NULL,
+ preferred_date TEXT DEFAULT '',
+ people_count INTEGER NOT NULL,
+ suggested_price INTEGER NOT NULL DEFAULT 0,
+ agreed_price INTEGER NOT NULL DEFAULT 0,
+ notes TEXT DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'pending',
+ active INTEGER NOT NULL DEFAULT 1,
+ approved_at TEXT,
+ completed_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(leader_user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS group_members (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ retreat_id INTEGER NOT NULL,
+ name TEXT NOT NULL,
+ gender TEXT NOT NULL DEFAULT '',
+ amount_paid INTEGER NOT NULL DEFAULT 0,
+ payment_reference TEXT DEFAULT '',
+ payment_status TEXT NOT NULL DEFAULT 'pending',
+ pass_type TEXT NOT NULL DEFAULT 'individual',
+ pass_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ checked_in_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(retreat_id) REFERENCES group_retreats(id)
+);
 CREATE TABLE IF NOT EXISTS event_tickets (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  event_id INTEGER NOT NULL,
@@ -181,6 +232,21 @@ def init_db(app):
             rows = db.execute("SELECT id FROM event_tickets WHERE access_token IS NULL OR access_token=''").fetchall()
             for r in rows:
                 db.execute('UPDATE event_tickets SET access_token=? WHERE id=?', (secrets.token_urlsafe(24), r['id']))
+
+        # Remove completed event/group records after a 30-day grace period.
+        try:
+            old_events = db.execute("SELECT id FROM event_ticket_events WHERE active=1 AND event_date!='' AND event_date < date('now','-30 day')").fetchall()
+            for r in old_events:
+                db.execute('DELETE FROM event_joint_tickets WHERE event_id=?',(r['id'],))
+                db.execute('DELETE FROM event_tickets WHERE event_id=?',(r['id'],))
+                db.execute('DELETE FROM event_ticket_events WHERE id=?',(r['id'],))
+            old_groups = db.execute("SELECT id FROM group_retreats WHERE active=1 AND preferred_date!='' AND preferred_date < date('now','-30 day')").fetchall()
+            for r in old_groups:
+                db.execute('DELETE FROM group_members WHERE retreat_id=?',(r['id'],))
+                db.execute('DELETE FROM group_retreats WHERE id=?',(r['id'],))
+            db.commit()
+        except Exception:
+            pass
 
         defaults = {
             'promo_counter': '3401',
