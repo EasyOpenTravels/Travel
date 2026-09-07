@@ -1,6 +1,6 @@
 import re, secrets, sqlite3, os
 from datetime import datetime, timezone
-from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory
+from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
 from .qr import make_qr_bytes
@@ -333,7 +333,7 @@ def event_ticket_download(access_token):
     design=request.args.get('design','classic')
     bg={'classic':('#fbf6ea','#12212b'),'bold':('#d8f36a','#12212b'),'split':('#77e1d2','#12212b')}.get(design,('#fbf6ea','#12212b'))
     c.setFillColor(bg[0]); c.roundRect(14*mm,25*mm,W-28*mm,H-50*mm,10*mm,fill=1,stroke=0)
-    c.setFillColor(bg[1]); c.setFont('Helvetica-Bold',9); c.drawString(20*mm,H-39*mm,'OPEN ROAD · EVENT TICKET')
+    c.setFillColor(bg[1]); c.setFont('Helvetica-Bold',9); c.drawString(20*mm,H-39*mm,'EVENT TICKET')
     c.setFont('Helvetica-Bold',25); c.drawString(20*mm,H-58*mm,(row['event_title'] or '')[:36])
     y=H-82*mm
     for label,val in [('NAME',row['attendee_name']),('GENDER',row['attendee_gender'].title()),('TICKET',row['ticket_tier'].upper()),('CODE',row['ticket_code']),('DATE',f"{row['event_date'] or '—'} {row['event_time'] or ''}".strip()),('VENUE',row['venue'] or '—')]:
@@ -466,13 +466,27 @@ def event_scan(ticket_code):
     try: db.execute('BEGIN IMMEDIATE')
     except sqlite3.OperationalError: pass
     fresh=db.execute('SELECT * FROM event_tickets WHERE id=?',(row['id'],)).fetchone()
-    if fresh['approval_status']!='approved': db.rollback(); reason='This ticket is waiting for approval.'; return jsonify(ok=False,reason=reason) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
-    if fresh['ticket_status']!='valid': db.rollback(); reason='This ticket has already been used or voided.'; return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    if fresh['approval_status']!='approved':
+        db.rollback(); reason='This ticket is waiting for approval.'
+        return jsonify(ok=False,reason=reason) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    if fresh['ticket_status']!='valid':
+        from datetime import datetime, timezone
+        recent=False
+        if fresh['checked_in_at']:
+            try: recent=(datetime.now(timezone.utc)-datetime.fromisoformat(fresh['checked_in_at'])).total_seconds() < 30
+            except ValueError: recent=False
+        db.rollback()
+        if recent:
+            guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
+            return jsonify(ok=True,grace=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance='Already approved — '+guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
+        reason='This ticket has already been used or voided.'
+        return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
     cur=db.execute("UPDATE event_tickets SET ticket_status='used',checked_in_at=? WHERE id=? AND ticket_status='valid'",(now(),row['id'])); db.commit()
     if cur.rowcount!=1:
-        reason='This ticket was just checked in elsewhere.'; return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
-    reason='Entry confirmed. This ticket is now expired.'
-    return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],reason=reason) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=reason)
+        reason='This ticket was approved moments ago.'
+        return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
+    return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance=guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
 
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)
