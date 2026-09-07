@@ -79,6 +79,10 @@ CREATE TABLE IF NOT EXISTS event_ticket_events (
  payment_instructions TEXT DEFAULT '',
  cover_image TEXT DEFAULT '',
  ticket_note TEXT DEFAULT '',
+ regular_price INTEGER NOT NULL DEFAULT 0,
+ vip_price INTEGER NOT NULL DEFAULT 0,
+ vvip_price INTEGER NOT NULL DEFAULT 0,
+ scanner_code TEXT UNIQUE NOT NULL,
  scanners_pin_hash TEXT NOT NULL,
  active INTEGER NOT NULL DEFAULT 1,
  created_at TEXT NOT NULL,
@@ -89,13 +93,17 @@ CREATE TABLE IF NOT EXISTS event_tickets (
  event_id INTEGER NOT NULL,
  attendee_user_id INTEGER,
  attendee_name TEXT NOT NULL,
+ attendee_gender TEXT NOT NULL DEFAULT '',
  attendee_phone TEXT DEFAULT '',
  attendee_email TEXT DEFAULT '',
  ticket_code TEXT UNIQUE NOT NULL,
  signature TEXT NOT NULL,
  payment_method TEXT NOT NULL DEFAULT 'M-Pesa',
- payment_reference TEXT NOT NULL,
+ payment_reference TEXT DEFAULT '',
  amount INTEGER NOT NULL DEFAULT 0,
+ ticket_tier TEXT NOT NULL DEFAULT 'regular',
+ source TEXT NOT NULL DEFAULT 'visitor',
+ access_token TEXT UNIQUE,
  payment_status TEXT NOT NULL DEFAULT 'submitted',
  approval_status TEXT NOT NULL DEFAULT 'pending',
  ticket_status TEXT NOT NULL DEFAULT 'valid',
@@ -144,12 +152,35 @@ def init_db(app):
                 'followup_sent': 'ALTER TABLE bookings ADD COLUMN followup_sent INTEGER NOT NULL DEFAULT 0',
             },
             'trips': {'gallery': "ALTER TABLE trips ADD COLUMN gallery TEXT DEFAULT ''"},
+            'event_ticket_events': {
+                'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',
+                'vip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vip_price INTEGER NOT NULL DEFAULT 0',
+                'vvip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vvip_price INTEGER NOT NULL DEFAULT 0',
+                'scanner_code': 'ALTER TABLE event_ticket_events ADD COLUMN scanner_code TEXT',
+            },
+            'event_tickets': {
+                'attendee_gender': "ALTER TABLE event_tickets ADD COLUMN attendee_gender TEXT NOT NULL DEFAULT ''",
+                'ticket_tier': "ALTER TABLE event_tickets ADD COLUMN ticket_tier TEXT NOT NULL DEFAULT 'regular'",
+                'source': "ALTER TABLE event_tickets ADD COLUMN source TEXT NOT NULL DEFAULT 'visitor'",
+                'access_token': 'ALTER TABLE event_tickets ADD COLUMN access_token TEXT',
+            },
         }
         for table, cols in upgrades.items():
             existing = _column_names(db, table)
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
+
+        import secrets
+        # Backfill scanner/access identifiers on databases created by earlier builds.
+        if 'scanner_code' in _column_names(db, 'event_ticket_events'):
+            rows = db.execute("SELECT id FROM event_ticket_events WHERE scanner_code IS NULL OR scanner_code=''").fetchall()
+            for r in rows:
+                db.execute('UPDATE event_ticket_events SET scanner_code=? WHERE id=?', ('SCN-' + secrets.token_hex(4).upper(), r['id']))
+        if 'access_token' in _column_names(db, 'event_tickets'):
+            rows = db.execute("SELECT id FROM event_tickets WHERE access_token IS NULL OR access_token=''").fetchall()
+            for r in rows:
+                db.execute('UPDATE event_tickets SET access_token=? WHERE id=?', (secrets.token_urlsafe(24), r['id']))
 
         defaults = {
             'promo_counter': '3401',
