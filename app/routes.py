@@ -171,7 +171,7 @@ def event_ticket_owner(event):
 def event_ticket_signature(code):
     return ticket_signature(code)
 
-def event_public_slug(db, title):
+def event_public_slug(db, title, exclude_event_id=None):
     base = slugify(title)
     return base + '-' + secrets.token_hex(3)
 
@@ -199,7 +199,18 @@ def ticketing_home():
            LEFT JOIN event_tickets t ON t.event_id=e.id
            WHERE e.active=1 GROUP BY e.id ORDER BY e.id DESC LIMIT 12"""
     ).fetchall()
-    return render_template('ticketing_home.html', events=events)
+    my_events = []
+    if session.get('user_id'):
+        my_events = db.execute(
+            """SELECT e.*, COUNT(t.id) ticket_count,
+                      SUM(CASE WHEN t.approval_status='approved' THEN 1 ELSE 0 END) approved_count,
+                      SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count
+               FROM event_ticket_events e
+               LEFT JOIN event_tickets t ON t.event_id=e.id
+               WHERE e.owner_user_id=? GROUP BY e.id ORDER BY e.id DESC""",
+            (session['user_id'],)
+        ).fetchall()
+    return render_template('ticketing_home.html', events=events, my_events=my_events)
 
 @bp.route('/ticketing/host', methods=['GET','POST'])
 def ticketing_host():
@@ -362,91 +373,144 @@ def event_ticket_download(ticket_code):
         'split': ((1,0.99,0.96),(0.07,0.13,0.17),(0.47,0.88,0.82)),
     }
     bg, fg, accent = palettes[design]
-    c.setFillColorRGB(*bg)
-    c.rect(0,0,W,H,fill=1,stroke=0)
-    c.setFillColorRGB(*accent)
-    c.roundRect(12*mm,H-40*mm,W-24*mm,24*mm,5*mm,fill=1,stroke=0)
-    c.setFillColorRGB(*fg)
-    c.setFont('Helvetica-Bold',9)
-    c.drawString(18*mm,H-25*mm,'OPEN ROAD · EVENT TICKET')
-    c.setFont('Helvetica-Bold',23)
-    c.drawString(18*mm,H-55*mm,(row['event_title'] or '')[:34])
+    c.setFillColorRGB(*bg); c.rect(0,0,W,H,fill=1,stroke=0)
+    c.setFillColorRGB(*accent); c.roundRect(12*mm,H-40*mm,W-24*mm,24*mm,5*mm,fill=1,stroke=0)
+    c.setFillColorRGB(*fg); c.setFont('Helvetica-Bold',9); c.drawString(18*mm,H-25*mm,'OPEN ROAD · EVENT TICKET')
+    c.setFont('Helvetica-Bold',23); c.drawString(18*mm,H-55*mm,(row['event_title'] or '')[:34])
     y = H - 69*mm
-    for label,val in [
-        ('NAME',row['attendee_name']),
-        ('TICKET',row['ticket_code']),
-        ('DATE',f"{row['event_date'] or '—'} {row['event_time'] or ''}".strip()),
-        ('VENUE',row['venue'] or '—')
-    ]:
-        c.setFont('Helvetica-Bold',7)
-        c.drawString(18*mm,y,label)
-        c.setFont('Helvetica-Bold',11)
-        c.drawString(18*mm,y-5*mm,str(val)[:48])
-        y -= 16*mm
-    qrdata = make_qr_bytes(
-        url_for('public.event_scan', ticket_code=row['ticket_code'],
-                sig=row['signature'], _external=True)
-    )
-    img = Image.open(BytesIO(qrdata))
-    tmp = BytesIO()
-    img.save(tmp, format='PNG')
-    tmp.seek(0)
-    c.drawImage(ImageReader(tmp), W-62*mm, 21*mm, width=46*mm, height=46*mm, mask='auto')
-    c.setFont('Helvetica',7)
-    c.drawString(18*mm,22*mm,'SCAN ONCE · VERIFIED BY SERVER · '+design.upper())
-    c.showPage()
-    c.save()
-    buf.seek(0)
+    for label,val in [('NAME',row['attendee_name']),('TICKET',row['ticket_code']),('DATE',f"{row['event_date'] or '—'} {row['event_time'] or ''}".strip()),('VENUE',row['venue'] or '—')]:
+        c.setFont('Helvetica-Bold',7); c.drawString(18*mm,y,label)
+        c.setFont('Helvetica-Bold',11); c.drawString(18*mm,y-5*mm,str(val)[:48]); y -= 16*mm
+    qrdata = make_qr_bytes(url_for('public.event_scan', ticket_code=row['ticket_code'], sig=row['signature'], _external=True))
+    img = Image.open(BytesIO(qrdata)); tmp = BytesIO(); img.save(tmp,format='PNG'); tmp.seek(0)
+    c.drawImage(ImageReader(tmp),W-62*mm,21*mm,width=46*mm,height=46*mm,mask='auto')
+    c.setFont('Helvetica',7); c.drawString(18*mm,22*mm,'SCAN ONCE · VERIFIED BY SERVER · '+design.upper())
+    c.showPage(); c.save(); buf.seek(0)
     safe_title = re.sub(r'[^A-Za-z0-9_-]','-',row['event_title'])
-    return send_file(
-        buf, mimetype='application/pdf', as_attachment=True,
-        download_name=f"{safe_title}-{row['ticket_code']}.pdf"
-    )
+    return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=f"{safe_title}-{row['ticket_code']}.pdf")
+
+@bp.get('/ticketing/api/events')
+def ticketing_events_api():
+    q = request.args.get('q','').strip()
+    db = get_db()
+    events = db.execute("""SELECT id,slug,title,description,event_date,event_time,venue,cover_image,price,currency
+                         FROM event_ticket_events WHERE active=1 ORDER BY id DESC LIMIT 60""").fetchall()
+    from difflib import SequenceMatcher
+    ranked=[]
+    for e in events:
+        title=(e['title'] or '').lower(); query=q.lower(); score=1 if not query else SequenceMatcher(None,query,title).ratio()
+        if query and query in title: score=0.98
+        if not query: score=0.5
+        if score >= 0.40: ranked.append((score,e))
+    ranked.sort(key=lambda x:(x[0],x[1]['id']),reverse=True)
+    return jsonify([{**dict(e),'score':round(score,3)} for score,e in ranked[:12]])
 
 @bp.get('/ticketing/find')
 def ticketing_find():
+    """Directory-first event discovery. Search is intentionally fuzzy and does not expose attendee lists."""
     q = request.args.get('q','').strip()
-    event_q = request.args.get('event','').strip()
-    rows = []
+    db = get_db()
+    events = db.execute(
+        """SELECT e.id,e.slug,e.title,e.description,e.event_date,e.event_time,e.venue,e.cover_image,
+                  e.price,e.currency,COUNT(t.id) ticket_count
+           FROM event_ticket_events e
+           LEFT JOIN event_tickets t ON t.event_id=e.id
+           WHERE e.active=1 GROUP BY e.id ORDER BY e.id DESC"""
+    ).fetchall()
     if q:
-        db = get_db()
-        like = '%' + q + '%'
-        if event_q:
-            rows = db.execute(
-                """SELECT t.id,t.ticket_code,t.attendee_name,t.approval_status,t.ticket_status,
-                          e.title,e.slug,e.event_date,e.venue,t.attendee_user_id
-                   FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id
-                   WHERE e.active=1 AND lower(e.title) LIKE lower(?) AND lower(t.attendee_name) LIKE lower(?)
-                   ORDER BY t.id DESC LIMIT 30""",
-                ('%'+event_q+'%', like)
-            ).fetchall()
-        else:
-            rows = db.execute(
-                """SELECT t.id,t.ticket_code,t.attendee_name,t.approval_status,t.ticket_status,
-                          e.title,e.slug,e.event_date,e.venue,t.attendee_user_id
-                   FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id
-                   WHERE e.active=1 AND lower(t.attendee_name) LIKE lower(?)
-                   ORDER BY t.id DESC LIMIT 30""",
-                (like,)
-            ).fetchall()
-    return render_template('ticketing_find.html', rows=rows, q=q, event_q=event_q)
+        from difflib import SequenceMatcher
+        terms = [w.lower() for w in re.findall(r"[\w']+", q) if len(w) > 1]
+        ranked = []
+        for e in events:
+            hay = f"{e['title']} {e['description']} {e['venue']}".lower()
+            title = (e['title'] or '').lower()
+            score = SequenceMatcher(None, q.lower(), title).ratio()
+            if q.lower() in hay: score = max(score, 0.92)
+            for term in terms:
+                if term in title: score = max(score, 0.84)
+                else:
+                    closest = max((SequenceMatcher(None, term, tok).ratio() for tok in re.findall(r"[\w']+", title)), default=0)
+                    score = max(score, closest * 0.82)
+            if score >= 0.42:
+                ranked.append((score,e))
+        ranked.sort(key=lambda x:(x[0], x[1]['id']), reverse=True)
+        events = [e for _,e in ranked[:24]]
+    else:
+        events = list(events[:24])
+    return render_template('ticketing_find.html', events=events, q=q)
+
+@bp.post('/ticketing/event/<int:event_id>/edit')
+def event_edit(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'):
+        return redirect(url_for('public.login', next=request.path))
+    db = get_db()
+    event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    title = request.form.get('title','').strip()
+    if not title:
+        flash('Your event needs a name.','error')
+        return redirect(url_for('public.event_manage', event_id=event_id))
+    cover = event_image_upload()
+    slug = event['slug']
+    if title.lower() != event['title'].lower():
+        slug = event_public_slug(db, title, exclude_event_id=event_id)
+    fields = {
+        'title': title,
+        'slug': slug,
+        'description': request.form.get('description','').strip(),
+        'event_date': request.form.get('event_date','').strip(),
+        'event_time': request.form.get('event_time','').strip(),
+        'venue': request.form.get('venue','').strip(),
+        'price': max(0,int(request.form.get('price','0') or 0)),
+        'currency': (request.form.get('currency','KES').strip().upper()[:6] or 'KES'),
+        'payment_instructions': request.form.get('payment_instructions','').strip(),
+        'ticket_note': request.form.get('ticket_note','').strip(),
+    }
+    if cover: fields['cover_image'] = cover
+    db.execute(
+        """UPDATE event_ticket_events SET title=?,slug=?,description=?,event_date=?,event_time=?,venue=?,price=?,currency=?,
+           payment_instructions=?,ticket_note=?,cover_image=? WHERE id=?""",
+        (fields['title'],fields['slug'],fields['description'],fields['event_date'],fields['event_time'],fields['venue'],fields['price'],fields['currency'],fields['payment_instructions'],fields['ticket_note'],cover or event['cover_image'],event_id)
+    )
+    db.commit()
+    flash('Event details updated.','success')
+    return redirect(url_for('public.event_manage', event_id=event_id))
+
+@bp.post('/ticketing/event/<int:event_id>/delete')
+def event_delete(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'):
+        return redirect(url_for('public.login', next=request.path))
+    db = get_db()
+    event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    db.execute('UPDATE event_ticket_events SET active=0 WHERE id=?',(event_id,))
+    db.execute("UPDATE event_tickets SET ticket_status='void' WHERE event_id=? AND ticket_status='valid'",(event_id,))
+    db.commit()
+    flash('Event archived. Its tickets are now void and it is no longer public.','success')
+    return redirect(url_for('public.ticketing_home'))
+
+@bp.post('/ticketing/event/<int:event_id>/scanner-pin')
+def event_scanner_pin(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'):
+        return redirect(url_for('public.login', next=request.path))
+    db = get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    pin=request.form.get('scanners_pin','').strip()
+    if not pin.isdigit() or not 4<=len(pin)<=8:
+        flash('Scanner PIN must be 4–8 digits.','error')
+        return redirect(url_for('public.event_manage',event_id=event_id))
+    db.execute('UPDATE event_ticket_events SET scanners_pin_hash=? WHERE id=?',(hash_pin(pin),event_id)); db.commit()
+    flash('Scanner PIN updated.','success')
+    return redirect(url_for('public.event_manage',event_id=event_id))
 
 @bp.get('/ticketing/ticket-id/<int:ticket_id>')
 def event_ticket_from_id(ticket_id):
     row = get_db().execute('SELECT ticket_code FROM event_tickets WHERE id=?',(ticket_id,)).fetchone()
-    if not row:
-        abort(404)
-    # Public result page can reveal locked/approved state but not ticket details.
-    full = get_db().execute(
-        """SELECT t.*,e.title event_title,e.event_date,e.venue,e.owner_user_id
-           FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.id=?""",
-        (ticket_id,)
-    ).fetchone()
-    if not full: abort(404)
-    owner = session.get('user_id') == full['attendee_user_id'] or session.get('admin_auth')
-    if not owner:
-        return render_template('event_ticket_locked.html', ticket=full), 403
-    return redirect(url_for('public.event_ticket_view', ticket_code=row['ticket_code']))
+    if not row: abort(404)
+    return redirect(url_for('public.event_ticket_view',ticket_code=row['ticket_code']))
 
 @bp.route('/ticketing/event/<int:event_id>/manage', methods=['GET','POST'])
 def event_manage(event_id):
@@ -455,8 +519,7 @@ def event_manage(event_id):
     db = get_db()
     event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
     if not event: abort(404)
-    if not event_ticket_owner(event) and not session.get('admin_auth'):
-        abort(403)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
     tickets = db.execute(
         """SELECT * FROM event_tickets WHERE event_id=?
            ORDER BY CASE approval_status WHEN 'pending' THEN 0 ELSE 1 END,id DESC""",
@@ -466,94 +529,51 @@ def event_manage(event_id):
 
 @bp.post('/ticketing/event/<int:event_id>/approve/<int:ticket_id>')
 def event_approve(event_id,ticket_id):
-    db = get_db()
-    event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    db = get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
     if not event: abort(404)
-    if not session.get('admin_auth') and not event_ticket_owner(event):
-        abort(403)
-    cur = db.execute(
-        """UPDATE event_tickets
-           SET approval_status='approved',payment_status='verified',approved_at=?
-           WHERE id=? AND event_id=? AND approval_status='pending'""",
-        (now(),ticket_id,event_id)
-    )
-    db.commit()
-    flash(
-        'Ticket approved. The attendee can now download it.',
-        'success' if cur.rowcount else 'error'
-    )
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    cur=db.execute("UPDATE event_tickets SET approval_status='approved',payment_status='verified',approved_at=? WHERE id=? AND event_id=? AND approval_status='pending'",(now(),ticket_id,event_id)); db.commit()
+    flash('Ticket approved. The attendee can now download it.','success' if cur.rowcount else 'error')
     return redirect(url_for('public.event_manage',event_id=event_id))
 
 @bp.post('/ticketing/event/<int:event_id>/reject/<int:ticket_id>')
 def event_reject(event_id,ticket_id):
-    db = get_db()
-    event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
     if not event: abort(404)
-    if not session.get('admin_auth') and not event_ticket_owner(event):
-        abort(403)
-    db.execute(
-        """UPDATE event_tickets
-           SET approval_status='rejected',payment_status='rejected',ticket_status='void'
-           WHERE id=? AND event_id=? AND approval_status='pending'""",
-        (ticket_id,event_id)
-    )
-    db.commit()
-    flash('Ticket rejected and voided.','success')
-    return redirect(url_for('public.event_manage',event_id=event_id))
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    db.execute("UPDATE event_tickets SET approval_status='rejected',payment_status='rejected',ticket_status='void' WHERE id=? AND event_id=? AND approval_status='pending'",(ticket_id,event_id)); db.commit()
+    flash('Ticket rejected and voided.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
 
 @bp.route('/ticketing/event/<int:event_id>/scanner', methods=['GET','POST'])
 def event_scanner(event_id):
     if not session.get('user_id') and not session.get('admin_auth'):
         return redirect(url_for('public.login', next=request.path))
-    db = get_db()
-    event = db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
     if not event: abort(404)
-    if not session.get('admin_auth') and not event_ticket_owner(event):
-        abort(403)
-    if request.method == 'POST':
-        pin = request.form.get('pin','').strip()
-        if verify_pin(event['scanners_pin_hash'], pin):
-            session['event_scanner_event_id'] = event_id
-            return redirect(url_for('public.event_scanner',event_id=event_id))
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    if request.method=='POST':
+        pin=request.form.get('pin','').strip()
+        if verify_pin(event['scanners_pin_hash'],pin): session['event_scanner_event_id']=event_id; return redirect(url_for('public.event_scanner',event_id=event_id))
         flash('That Scanner PIN is not correct.','error')
-    authorized = session.get('event_scanner_event_id') == event_id or session.get('admin_auth')
+    authorized=session.get('event_scanner_event_id')==event_id or session.get('admin_auth')
     return render_template('event_scanner.html',event=event,authorized=authorized)
 
 @bp.get('/ticketing/scan/<ticket_code>')
 def event_scan(ticket_code):
-    sig = request.args.get('sig','')
-    if not verify_ticket(ticket_code,sig):
-        return render_template('event_scan_result.html',valid=False,reason='This QR is not authentic.')
-    db = get_db()
-    row = db.execute(
-        """SELECT t.*,e.title event_title,e.id event_id,e.event_date,e.event_time,e.venue,e.owner_user_id
-           FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id
-           WHERE t.ticket_code=?""", (ticket_code,)
-    ).fetchone()
-    if not row:
-        return render_template('event_scan_result.html',valid=False,reason='Ticket not found.')
+    sig=request.args.get('sig','')
+    if not verify_ticket(ticket_code,sig): return render_template('event_scan_result.html',valid=False,reason='This QR is not authentic.')
+    db=get_db(); row=db.execute("""SELECT t.*,e.title event_title,e.id event_id,e.event_date,e.event_time,e.venue,e.owner_user_id FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.ticket_code=?""",(ticket_code,)).fetchone()
+    if not row: return render_template('event_scan_result.html',valid=False,reason='Ticket not found.')
     if session.get('event_scanner_event_id') != row['event_id'] and not session.get('admin_auth'):
-        return render_template('event_scan_result.html',valid=False,
-                               reason='Open the event scanner and enter its Scanner PIN first.')
-    db.execute('BEGIN IMMEDIATE')
-    fresh = db.execute('SELECT * FROM event_tickets WHERE id=?',(row['id'],)).fetchone()
-    if fresh['approval_status'] != 'approved':
-        db.rollback()
-        return render_template('event_scan_result.html',valid=False,ticket=row,reason='Ticket is not approved yet.')
-    if fresh['ticket_status'] != 'valid':
-        db.rollback()
-        return render_template('event_scan_result.html',valid=False,ticket=row,
-                               reason='This ticket has already been used or voided.')
-    cur = db.execute(
-        "UPDATE event_tickets SET ticket_status='used',checked_in_at=? WHERE id=? AND ticket_status='valid'",
-        (now(),row['id'])
-    )
-    db.commit()
-    if cur.rowcount != 1:
-        return render_template('event_scan_result.html',valid=False,ticket=row,
-                               reason='This ticket was just checked in elsewhere.')
-    return render_template('event_scan_result.html',valid=True,ticket=row,
-                           reason='Entry confirmed. This QR is now expired.')
+        return render_template('event_scan_result.html',valid=False,reason='Open the event scanner and enter its Scanner PIN first.')
+    try: db.execute('BEGIN IMMEDIATE')
+    except sqlite3.OperationalError: pass
+    fresh=db.execute('SELECT * FROM event_tickets WHERE id=?',(row['id'],)).fetchone()
+    if fresh['approval_status']!='approved': db.rollback(); return render_template('event_scan_result.html',valid=False,ticket=row,reason='Ticket is not approved yet.')
+    if fresh['ticket_status']!='valid': db.rollback(); return render_template('event_scan_result.html',valid=False,ticket=row,reason='This ticket has already been used or voided.')
+    cur=db.execute("UPDATE event_tickets SET ticket_status='used',checked_in_at=? WHERE id=? AND ticket_status='valid'",(now(),row['id'])); db.commit()
+    if cur.rowcount!=1: return render_template('event_scan_result.html',valid=False,ticket=row,reason='This ticket was just checked in elsewhere.')
+    return render_template('event_scan_result.html',valid=True,ticket=row,reason='Entry confirmed. This QR is now expired.')
 
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)
