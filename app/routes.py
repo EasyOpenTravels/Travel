@@ -189,6 +189,13 @@ def event_image_upload():
     return '/media/' + fn
 
 def _tier_for_amount(event, amount, requested='auto'):
+    """Resolve the ticket class from the event prices.
+
+    Manual choices always win. In auto mode, an exact configured price wins;
+    otherwise the amount falls into the highest configured tier it reaches.
+    This makes 2,000 reliably map to VIP when, for example, Regular=1,000,
+    VIP=2,000 and VVIP=5,000.
+    """
     mapping = [
         ('regular', int(event['regular_price'] or 0)),
         ('vip', int(event['vip_price'] or 0)),
@@ -197,9 +204,16 @@ def _tier_for_amount(event, amount, requested='auto'):
     requested=(requested or 'auto').lower()
     if requested in {'regular','vip','vvip'}:
         return requested
+    amount=max(0, int(amount or 0))
+    # Prefer an exact configured price, including when prices are entered out of order.
     for tier, price in mapping:
-        if price and amount == price:
+        if price > 0 and amount == price:
             return tier
+    # Otherwise classify by the highest configured tier whose entry price is reached.
+    reached=[(price,tier) for tier,price in mapping if price > 0 and amount >= price]
+    if reached:
+        reached.sort(key=lambda item:item[0])
+        return reached[-1][1]
     return 'regular'
 
 def _new_ticket_code():
@@ -329,6 +343,7 @@ def event_ticket_download(access_token):
     from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
     import base64
+    from pathlib import Path
     buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4)
     design=request.args.get('design','classic')
     bg={'classic':('#fbf6ea','#12212b'),'bold':('#d8f36a','#12212b'),'split':('#77e1d2','#12212b')}.get(design,('#fbf6ea','#12212b'))
@@ -339,6 +354,10 @@ def event_ticket_download(access_token):
     for label,val in [('NAME',row['attendee_name']),('GENDER',row['attendee_gender'].title()),('TICKET',row['ticket_tier'].upper()),('CODE',row['ticket_code']),('DATE',f"{row['event_date'] or '—'} {row['event_time'] or ''}".strip()),('VENUE',row['venue'] or '—')]:
         c.setFont('Helvetica-Bold',7); c.drawString(20*mm,y,label); y-=5*mm; c.setFont('Helvetica',12); c.drawString(20*mm,y,str(val)[:44]); y-=12*mm
     qrbytes=make_qr_bytes(_event_qr_url(row)); tmp=BytesIO(qrbytes); c.drawImage(ImageReader(tmp),W-74*mm,29*mm,width=52*mm,height=52*mm,mask='auto')
+    sig_path=Path(current_app.root_path)/'static'/'event-signature.png'
+    if sig_path.exists():
+        c.drawImage(ImageReader(str(sig_path)),20*mm,43*mm,width=48*mm,height=11*mm,mask='auto')
+        c.setFillColor(bg[1]); c.setFont('Helvetica',6.5); c.drawString(20*mm,40*mm,'EVENT AUTHORIZATION')
     c.setFillColor(bg[1]); c.setFont('Helvetica-Bold',7); c.drawString(20*mm,31*mm,'SCAN ONCE · SERVER VERIFIED · QR EXPIRES AFTER ENTRY')
     c.showPage(); c.save(); buf.seek(0)
     safe_title=re.sub(r'[^A-Za-z0-9_-]','-',row['event_title']); return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=f"{safe_title}-{row['ticket_code']}.pdf")
