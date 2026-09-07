@@ -170,6 +170,35 @@ def booking_status(booking_id):
     if status not in ('awaiting_payment','payment_submitted','paid','confirmed','cancelled'): abort(400)
     db=get_db(); db.execute('UPDATE bookings SET payment_status=?,paid_at=? WHERE id=?',(status,now() if status in ('paid','confirmed') else None,booking_id)); db.commit(); flash('Booking status updated.','success'); return redirect(url_for('admin.bookings'))
 
+
+@admin_bp.get('/event-ticketing')
+def event_ticketing():
+    g=guard()
+    if g:return g
+    db=get_db()
+    events=db.execute(
+        "SELECT e.*,u.name owner_name,COUNT(t.id) ticket_count,"
+        "SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count "
+        "FROM event_ticket_events e JOIN users u ON u.id=e.owner_user_id "
+        "LEFT JOIN event_tickets t ON t.event_id=e.id "
+        "GROUP BY e.id ORDER BY e.id DESC"
+    ).fetchall()
+    return render_template('admin_event_ticketing.html',events=events)
+
+@admin_bp.post('/event-ticketing/<int:event_id>/approve/<int:ticket_id>')
+def admin_event_ticket_approve(event_id,ticket_id):
+    g=guard()
+    if g:return g
+    db=get_db()
+    db.execute(
+        "UPDATE event_tickets SET approval_status='approved',payment_status='verified',approved_at=? "
+        "WHERE id=? AND event_id=? AND approval_status='pending'",
+        (now(),ticket_id,event_id)
+    )
+    db.commit()
+    flash('Event ticket approved.','success')
+    return redirect(url_for('admin.event_ticketing'))
+
 @admin_bp.route('/messages')
 def messages():
     g=guard()

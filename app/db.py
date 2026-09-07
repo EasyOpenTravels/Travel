@@ -64,6 +64,49 @@ CREATE TABLE IF NOT EXISTS service_requests (
  budget TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL,
  FOREIGN KEY(service_id) REFERENCES services(id), FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS event_ticket_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ owner_user_id INTEGER NOT NULL,
+ slug TEXT UNIQUE NOT NULL,
+ title TEXT NOT NULL,
+ description TEXT DEFAULT '',
+ event_date TEXT DEFAULT '',
+ event_time TEXT DEFAULT '',
+ venue TEXT DEFAULT '',
+ price INTEGER NOT NULL DEFAULT 0,
+ currency TEXT NOT NULL DEFAULT 'KES',
+ payment_instructions TEXT DEFAULT '',
+ cover_image TEXT DEFAULT '',
+ ticket_note TEXT DEFAULT '',
+ scanners_pin_hash TEXT NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(owner_user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS event_tickets (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ event_id INTEGER NOT NULL,
+ attendee_user_id INTEGER,
+ attendee_name TEXT NOT NULL,
+ attendee_phone TEXT DEFAULT '',
+ attendee_email TEXT DEFAULT '',
+ ticket_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ payment_method TEXT NOT NULL DEFAULT 'M-Pesa',
+ payment_reference TEXT NOT NULL,
+ amount INTEGER NOT NULL DEFAULT 0,
+ payment_status TEXT NOT NULL DEFAULT 'submitted',
+ approval_status TEXT NOT NULL DEFAULT 'pending',
+ ticket_status TEXT NOT NULL DEFAULT 'valid',
+ design TEXT NOT NULL DEFAULT 'classic',
+ checked_in_at TEXT,
+ approved_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(event_id) REFERENCES event_ticket_events(id),
+ FOREIGN KEY(attendee_user_id) REFERENCES users(id)
+);
+
 '''
 
 def get_db():
