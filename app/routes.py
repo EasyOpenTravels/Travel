@@ -1025,6 +1025,20 @@ def join():
     qr=make_qr_bytes(target)
     return render_template('join.html', target=target, qr=qr)
 
+@bp.get('/sw.js')
+def service_worker():
+    resp = send_from_directory(current_app.static_folder, 'sw.js', mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
 @bp.get('/manifest.json')
 def manifest():
-    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',scope='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',orientation='portrait-primary',categories=['travel','lifestyle','utilities'],icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+
+@bp.get('/offline')
+def offline_app():
+    return render_template('offline_app.html')
+
+@bp.get('/offline/my-stuff')
+def offline_my_stuff():
+    return render_template('offline_my_stuff.html')

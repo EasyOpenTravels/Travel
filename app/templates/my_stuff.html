@@ -67,4 +67,16 @@ function clearCopyForm(){document.getElementById('copy_item_id').value='';docume
 function editCopy(id,label,value,note){document.getElementById('copy_item_id').value=id;document.getElementById('copy_label').value=label;document.getElementById('copy_value').value=value;document.getElementById('copy_note').value=note;document.getElementById('copy_save_button').textContent='Update';document.getElementById('save-copy').scrollIntoView({behavior:'smooth',block:'start'});}
 document.querySelectorAll('.copy-button').forEach(btn=>btn.addEventListener('click',async()=>{const value=btn.dataset.copyValue||'';try{await navigator.clipboard.writeText(value);const old=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=old,1300)}catch(e){btn.textContent='Select & copy';setTimeout(()=>btn.textContent='Copy',1300)}}));
 document.getElementById('copySearch')?.addEventListener('input',e=>{const q=e.target.value.toLowerCase().trim();document.querySelectorAll('.copy-item').forEach(el=>el.style.display=!q||el.dataset.copySearch.includes(q)?'flex':'none')});
+
+// Keep a device-local copy of My Stuff so the installed app can continue working offline.
+(function(){
+  const seedFolders=[{% for f in folders %}{id:'srv-{{ f.id }}',name:{{ f.name|tojson }},color:{{ f.color|tojson }},createdAt:{{ f.created_at|tojson }}},{% endfor %}];
+  const seedCards=[{% for c in cards %}{id:'srv-{{ c.id }}',folderId:{% if c.folder_id %}{{ ('srv-' ~ c.folder_id)|tojson }}{% else %}""{% endif %},title:{{ c.title|tojson }},body:{{ c.body|tojson }},color:{{ c.color|tojson }},createdAt:{{ c.created_at|tojson }},updatedAt:{{ c.updated_at|tojson }}},{% endfor %}];
+  const seedCopies=[{% for x in copies %}{id:'srv-{{ x.id }}',label:{{ x.label|tojson }},value:{{ x.value|tojson }},note:{{ x.note|tojson }},createdAt:{{ x.created_at|tojson }},updatedAt:{{ x.updated_at|tojson }}},{% endfor %}];
+  try{
+    const r=indexedDB.open('open-road-offline-v2',2);
+    r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains('copies'))d.createObjectStore('copies',{keyPath:'id'});if(!d.objectStoreNames.contains('cards'))d.createObjectStore('cards',{keyPath:'id'});if(!d.objectStoreNames.contains('folders'))d.createObjectStore('folders',{keyPath:'id'});};
+    r.onsuccess=()=>{const d=r.result;const t=d.transaction(['folders','cards','copies'],'readwrite');const putIfMissing=(name,row)=>{const s=t.objectStore(name);const q=s.get(row.id);q.onsuccess=()=>{if(!q.result)s.put(row)}};seedFolders.forEach(x=>putIfMissing('folders',x));seedCards.forEach(x=>putIfMissing('cards',x));seedCopies.forEach(x=>putIfMissing('copies',x));};
+  }catch(e){}
+})();
 </script>{% endblock %}
