@@ -35,11 +35,14 @@
       </article>
       <form class="journal-v4-composer" method="post" action="{{ url_for('public.my_stuff_journal_save') }}" id="journalV4Form">
         <input type="hidden" name="entry_id" value="{{ entry.id if entry else '' }}"><input type="hidden" name="segments_json" id="segmentsJsonV4"><input type="hidden" name="mood" id="journalMoodField" value="{{ entry.mood if entry else 'morning' }}">
-        <textarea id="journalInput" name="body" aria-label="Journal entry" placeholder="Write a few words…" required>{{ entry.body if entry else '' }}</textarea>
+        <div class="journal-v4-compose-main">
+          <textarea id="journalInput" name="body" aria-label="Journal entry" placeholder="Write your memory here…" required>{{ entry.body if entry else '' }}</textarea>
+          <button class="journal-v4-save" type="submit">Save</button>
+        </div>
         <div class="journal-v4-compose-bottom">
-          <div class="journal-v4-compose-tools"><button type="button" class="jv4-icon" onclick="document.body.classList.toggle('journal-v4-emoji-open')">😊</button><a class="jv4-icon" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a></div>
+          <div class="journal-v4-compose-tools"><button type="button" class="jv4-icon" aria-label="Emoji" onclick="document.body.classList.toggle('journal-v4-emoji-open')">😊</button><a class="jv4-icon" aria-label="Journal settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a></div>
           <span id="journalPageHint">Page 1 · keep writing</span>
-          <button class="journal-v4-save" type="submit">Save memory</button>
+          <small>Saved to your journal only</small>
           <div class="journal-v4-emoji"><button type="button" onclick="jv4Emoji('✨')">✨</button><button type="button" onclick="jv4Emoji('❤️')">❤️</button><button type="button" onclick="jv4Emoji('😂')">😂</button><button type="button" onclick="jv4Emoji('🌿')">🌿</button><button type="button" onclick="jv4Emoji('🌙')">🌙</button></div>
         </div>
       </form>

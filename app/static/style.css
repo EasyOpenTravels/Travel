@@ -352,3 +352,48 @@ body.stuff-door-body main{height:100dvh;min-height:100dvh;margin:0;padding:0;ove
   .saves-v4{height:100dvh}
   .saves-v4-list{width:min(560px,calc(100% - 30px))}
 }
+
+/* FINAL MOBILE WORKSPACE CORRECTION — 2026-09-08 */
+.journal-v4-compose-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;min-height:0}
+.journal-v4-composer textarea{height:100%;min-height:0}
+.journal-v4-compose-main .journal-v4-save{align-self:stretch;min-width:72px;padding:0 13px;font-size:11px}
+.journal-v4-compose-bottom small{margin-left:auto;font-size:7px;color:#7f929a}
+.edits-v5-left-stack{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.edits-v5-cards-link{display:inline-flex;align-items:center;text-decoration:none;color:#102017;background:#d8f36a;border:2px solid #102017;border-radius:10px;padding:5px 9px;font-size:9px;font-weight:900;box-shadow:2px 2px 0 #102017}
+@media (max-width:900px){
+  .journal-v4-main{overflow-y:auto;overflow-x:hidden}
+  .journal-v4-write{min-height:calc(100dvh - 52px);grid-template-rows:auto minmax(220px,34dvh) 118px;gap:7px;padding:7px 8px 14px}
+  .journal-v4-page{min-height:0;height:auto}
+  .journal-v4-composer{height:118px;min-height:118px;grid-template-rows:minmax(0,1fr) auto;padding:7px;overflow:visible}
+  .journal-v4-compose-main{grid-template-columns:minmax(0,1fr) 66px;gap:7px}
+  .journal-v4-composer textarea{font-size:14px;line-height:1.42;padding:9px 10px}
+  .journal-v4-compose-main .journal-v4-save{min-width:66px;border-radius:11px;font-size:11px}
+  .journal-v4-compose-bottom{gap:6px;min-height:28px}
+  .journal-v4-compose-bottom>span{font-size:7px}
+  .journal-v4-compose-bottom small{display:none}
+  .jv4-icon{width:28px;height:28px;font-size:12px}
+  .journal-v4-emoji{bottom:32px}
+
+  .edits-v5{height:100dvh;min-height:0;overflow:hidden}
+  .edits-v5-top{grid-template-columns:auto minmax(0,1fr) auto;padding:6px 9px;min-height:62px}
+  .edits-v5-head h1{font-size:18px}
+  .edits-v5-head span{font-size:6px}
+  .edits-v5-stuff,.edits-v5-menu{padding:8px 10px;font-size:10px}
+  .edits-v5-cards-link{font-size:8px;padding:4px 8px}
+  .edits-v5-switch{font-size:9px}
+  .edits-v5-main{overflow-y:auto!important;overflow-x:hidden!important;padding:8px 7px 18px;display:block!important;-webkit-overflow-scrolling:touch}
+  .edits-v5-card-work{min-height:760px;height:auto!important;display:flex!important;flex-direction:column!important;gap:9px}
+  .edits-v5-preview-pane{flex:0 0 470px;min-height:470px;display:grid;grid-template-rows:28px minmax(0,1fr) 52px;padding:8px}
+  .edits-v5-card-preview{width:min(78vw,330px);height:min(390px,72vw);min-height:250px;max-height:390px;margin:auto;padding:24px}
+  .edits-v5-card-preview h2{font-size:clamp(26px,7vw,36px)}
+  .edits-v5-card-preview p{font-size:14px}
+  .edits-v5-samples{overflow-x:auto;overflow-y:hidden;padding-bottom:3px;scrollbar-width:thin}
+  .edits-v5-samples .sample{min-width:72px;font-size:8px}
+  .edits-v5-card-form{width:min(520px,100%);margin:0 auto;height:auto;min-height:280px;overflow:visible;padding:10px;border-radius:15px}
+  .edits-v5-card-form input[type=text],.edits-v5-card-form label input,.edits-v5-card-form>textarea{font-size:14px;padding:10px}
+  .edits-v5-card-form>textarea{height:86px;min-height:86px}
+  .edits-v5-choices{max-height:none;overflow:visible}
+  .edits-v5-branding{font-size:9px}
+  .edits-v5-card-actions button{padding:10px 7px;font-size:9px}
+  .edits-v5-side{top:101px}
+}

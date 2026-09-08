@@ -1,7 +1,10 @@
 {% extends 'base.html' %}{% block content %}
 <div class="edits-v5 {% if mode=='photo' %}photo-mode{% endif %}">
   <header class="edits-v5-top">
-    <a href="{{ url_for('public.my_stuff') }}" class="edits-v5-stuff">My Stuff</a>
+    <div class="edits-v5-left-stack">
+      <a href="{{ url_for('public.my_stuff') }}" class="edits-v5-stuff">My Stuff</a>
+      <a href="{{ url_for('public.my_stuff_edits_studio',mode='cards') }}" class="edits-v5-cards-link">My Cards</a>
+    </div>
     <div class="edits-v5-head"><span>03 · CREATIVE SPACE</span><h1>My Edits</h1></div>
     <button class="edits-v5-menu" type="button" onclick="document.body.classList.toggle('edits-v5-drawer-open')">Projects</button>
   </header>
