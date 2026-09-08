@@ -706,7 +706,8 @@ def event_scan(ticket_code):
 
 @bp.before_request
 def _ensure_stuff_session():
-    # Only mark the extra lock as stale when the user logs out or changes account.
+    # Backward compatibility only: older builds used a My Stuff-specific lock.
+    # The current app uses one optional account-wide Open Road ID instead.
     uid = session.get('user_id')
     if session.get('_stuff_user_id') != uid:
         session.pop('stuff_unlocked', None)
@@ -720,8 +721,20 @@ def _current_user_for_stuff():
     return get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL', (uid,)).fetchone()
 
 
+def _global_simple_id_hash(user):
+    # Migrate the previous My Stuff ID into the single app-wide ID lazily.
+    return user['simple_id_hash'] or user['stuff_id_hash']
+
+
 def _stuff_colors():
     return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white']
+
+def _journal_moods():
+    return ['thoughts', 'grateful', 'happy', 'calm', 'excited', 'sad', 'angry', 'hopeful', 'proud', 'tired']
+
+def _journal_excerpt(body, limit=190):
+    text=re.sub(r'\s+', ' ', (body or '')).strip()
+    return text if len(text) <= limit else text[:limit-1].rstrip() + '…'
 
 
 def _safe_stuff_image_name(original):
@@ -731,50 +744,138 @@ def _safe_stuff_image_name(original):
     return f"{stem}-{secrets.token_hex(5)}.jpg"
 
 
+def _stuff_redirect(section='journal'):
+    return redirect(url_for('public.my_stuff', section=section))
+
+
 @bp.route('/my-stuff', methods=['GET', 'POST'])
 def my_stuff():
     user = _current_user_for_stuff()
     if not user:
-        session['next_url'] = url_for('public.my_stuff')
+        session['next_url'] = request.full_path
         return redirect(url_for('public.login'))
+    section = request.args.get('section', 'journal').strip().lower()
+    if section not in {'journal', 'copy-paste', 'edits-studio'}:
+        section = 'journal'
+    journal_view = request.args.get('journal_view', 'active').strip().lower()
+    if journal_view not in {'active', 'archived'}:
+        journal_view = 'active'
     db = get_db()
-    if not user['stuff_id_hash']:
-        if request.method == 'POST' and request.form.get('action') == 'create_stuff_id':
-            simple_id = request.form.get('stuff_id', '').strip()
-            if not re.fullmatch(r'[A-Za-z0-9]{4,8}', simple_id):
-                flash('Choose a simple 4–8 character ID using letters and numbers.', 'error')
-            else:
-                db.execute('UPDATE users SET stuff_id_hash=? WHERE id=?', (hash_pin(simple_id), user['id']))
-                db.commit(); session['stuff_unlocked'] = True; flash('My Stuff is ready.', 'success')
-                return redirect(url_for('public.my_stuff'))
-        return render_template('my_stuff.html', setup=True, user=user, colors=_stuff_colors(), folders=[], cards=[], copies=[], images=[])
-    if not session.get('stuff_unlocked'):
-        if request.method == 'POST' and request.form.get('action') == 'unlock_stuff':
-            simple_id = request.form.get('stuff_id', '').strip()
-            if verify_pin(user['stuff_id_hash'], simple_id):
-                session['stuff_unlocked'] = True
-                return redirect(url_for('public.my_stuff'))
-            flash('That My Stuff ID did not unlock this space.', 'error')
-        return render_template('my_stuff.html', lock=True, setup=False, user=user, colors=_stuff_colors(), folders=[], cards=[], copies=[], images=[])
+
+    # One optional ID for the whole app. Journal owns the creation UI.
+    simple_id_hash = _global_simple_id_hash(user)
+    if request.method == 'POST' and request.form.get('action') == 'create_global_id':
+        simple_id = request.form.get('simple_id', '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9]{4,8}', simple_id):
+            flash('Choose a simple 4–8 character ID using letters and numbers.', 'error')
+        elif simple_id_hash:
+            flash('You already have an Open Road ID. Use the same one throughout the app.', 'error')
+        else:
+            db.execute('UPDATE users SET simple_id_hash=? WHERE id=?', (hash_pin(simple_id), user['id']))
+            db.commit()
+            flash('Your Open Road ID is ready. The same ID can now be used across the app.', 'success')
+            return _stuff_redirect('journal')
 
     folders = db.execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY id', (user['id'],)).fetchall()
-    cards = db.execute('''SELECT c.*,f.name folder_name FROM stuff_cards c LEFT JOIN stuff_folders f ON f.id=c.folder_id
-                          WHERE c.user_id=? ORDER BY c.updated_at DESC, c.id DESC''', (user['id'],)).fetchall()
+    cards = db.execute("""SELECT c.*,f.name folder_name FROM stuff_cards c LEFT JOIN stuff_folders f ON f.id=c.folder_id
+                          WHERE c.user_id=? ORDER BY c.updated_at DESC, c.id DESC""", (user['id'],)).fetchall()
     copies = db.execute('SELECT * FROM saved_copies WHERE user_id=? ORDER BY id DESC', (user['id'],)).fetchall()
     images = db.execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 24', (user['id'],)).fetchall()
-    return render_template('my_stuff.html', setup=False, lock=False, user=user, colors=_stuff_colors(), folders=folders, cards=cards, copies=copies, images=images)
+    journals = db.execute("""SELECT * FROM journal_entries WHERE user_id=? AND archived=?
+                           ORDER BY favorite DESC, updated_at DESC, id DESC""", (user['id'], 1 if journal_view=='archived' else 0)).fetchall()
+    journal_count = db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=0', (user['id'],)).fetchone()['n']
+    archived_journal_count = db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=1', (user['id'],)).fetchone()['n']
+    return render_template(
+        'my_stuff.html', user=user, section=section, colors=_stuff_colors(), journal_moods=_journal_moods(), folders=folders,
+        cards=cards, copies=copies, images=images, journals=journals, journal_count=journal_count,
+        archived_journal_count=archived_journal_count, journal_view=journal_view, simple_id_exists=bool(simple_id_hash),
+        card_uses=int(user['journal_card_uses'] or 0)
+    )
+
+
+@bp.post('/my-stuff/journal/save')
+def my_stuff_journal_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db()
+    entry_id=request.form.get('entry_id','').strip()
+    title=request.form.get('title','').strip()[:140]
+    body=request.form.get('body','').strip()
+    mood=request.form.get('mood','thoughts').strip().lower()
+    tags=request.form.get('tags','').strip()[:240]
+    cover_color=request.form.get('cover_color','cream').strip().lower()
+    if mood not in _journal_moods(): mood='thoughts'
+    if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
+    clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
+    if not title or not body:
+        flash('Give your journal story a title and some words first.','error')
+        return _stuff_redirect('journal')
+    if entry_id:
+        owned=db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+        if not owned: abort(404)
+        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,updated_at=? WHERE id=? AND user_id=?',
+                   (title,body,mood,clean_tags,cover_color,now(),entry_id,user['id']))
+        msg='Journal story updated.'
+        saved_id=entry_id
+    else:
+        cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+                       (user['id'],title,body,mood,clean_tags,cover_color,now(),now()))
+        db.commit(); saved_id=cur.lastrowid; msg='Journal story saved.'
+    db.commit()
+    flash(msg,'success')
+    return redirect(url_for('public.my_stuff_journal_view',entry_id=saved_id))
+
+
+@bp.get('/my-stuff/journal/<int:entry_id>')
+def my_stuff_journal_view(entry_id):
+    user=_current_user_for_stuff()
+    if not user: return redirect(url_for('public.login', next=request.full_path))
+    row=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db=get_db(); db.execute('UPDATE journal_entries SET updated_at=updated_at WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
+    return render_template('journal_entry.html', entry=row, moods=_journal_moods(), edit=request.args.get('edit')=='1')
+
+
+@bp.post('/my-stuff/journal/<int:entry_id>/favorite')
+def my_stuff_journal_favorite(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); row=db.execute('SELECT favorite FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET favorite=? WHERE id=? AND user_id=?',(0 if row['favorite'] else 1,entry_id,user['id'])); db.commit()
+    return redirect(request.form.get('next') or url_for('public.my_stuff',section='journal'))
+
+
+@bp.post('/my-stuff/journal/<int:entry_id>/archive')
+def my_stuff_journal_archive(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); row=db.execute('SELECT archived FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET archived=? WHERE id=? AND user_id=?',(0 if row['archived'] else 1,entry_id,user['id'])); db.commit()
+    flash('Journal story moved '+('back to your journal.' if row['archived'] else 'to your archive.'),'success')
+    return redirect(request.form.get('next') or url_for('public.my_stuff',section='journal'))
+
+
+@bp.post('/my-stuff/journal/<int:entry_id>/delete')
+def my_stuff_journal_delete(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); cur=db.execute('DELETE FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
+    if not cur.rowcount: abort(404)
+    flash('Journal story deleted.','success')
+    return redirect(url_for('public.my_stuff',section='journal'))
 
 
 @bp.post('/my-stuff/folder/save')
 def my_stuff_folder_save():
     user = _current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=url_for('public.my_stuff')))
-    if not session.get('stuff_unlocked'): return redirect(url_for('public.my_stuff'))
+    if not user: return redirect(url_for('public.login', next=url_for('public.my_stuff', section='journal')))
     db = get_db(); folder_id = request.form.get('folder_id', '').strip()
     name = request.form.get('name', '').strip()[:60]; color = request.form.get('color', 'lime')
     if color not in _stuff_colors(): color = 'lime'
     if not name:
-        flash('Give the folder a name.', 'error'); return redirect(url_for('public.my_stuff'))
+        flash('Give the folder a name.', 'error'); return _stuff_redirect('journal')
     try:
         if folder_id:
             db.execute('UPDATE stuff_folders SET name=?,color=? WHERE id=? AND user_id=?', (name, color, folder_id, user['id']))
@@ -783,22 +884,22 @@ def my_stuff_folder_save():
         db.commit(); flash('Folder saved.', 'success')
     except sqlite3.IntegrityError:
         flash('You already have a folder with that name.', 'error')
-    return redirect(url_for('public.my_stuff'))
+    return _stuff_redirect('journal')
 
 
 @bp.post('/my-stuff/folder/<int:folder_id>/delete')
 def my_stuff_folder_delete(folder_id):
     user = _current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db = get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?', (folder_id, user['id'])); db.commit()
     flash('Folder deleted. Cards are kept without a folder.', 'success')
-    return redirect(url_for('public.my_stuff'))
+    return _stuff_redirect('journal')
 
 
 @bp.post('/my-stuff/card/save')
 def my_stuff_card_save():
     user = _current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db = get_db(); card_id = request.form.get('card_id', '').strip(); title = request.form.get('title','').strip()[:100]
     body = request.form.get('body','').strip(); color = request.form.get('color','lime'); folder_id = request.form.get('folder_id') or None
     if color not in _stuff_colors(): color = 'lime'
@@ -806,69 +907,72 @@ def my_stuff_card_save():
         owned = db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone()
         if not owned: folder_id = None
     if not title or not body:
-        flash('Give the card a title and something to keep on it.', 'error'); return redirect(url_for('public.my_stuff'))
+        flash('Give the card a title and something to keep on it.', 'error'); return _stuff_redirect('journal')
     if card_id:
         db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,updated_at=? WHERE id=? AND user_id=?', (folder_id,title,body,color,now(),card_id,user['id']))
         msg='Card updated.'
     else:
         db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?,?)', (user['id'],folder_id,title,body,color,now(),now()))
+        db.execute('UPDATE users SET journal_card_uses=COALESCE(journal_card_uses,0)+1 WHERE id=?',(user['id'],))
+        next_uses=int(user['journal_card_uses'] or 0)+1
         msg='Card saved.'
-    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff'))
+        if next_uses >= 3 and not _global_simple_id_hash(user):
+            flash('Card saved. You’ve used Journal a few times — create your one Open Road ID in Journal whenever you are ready.', 'success')
+            db.commit(); return _stuff_redirect('journal')
+    db.commit(); flash(msg,'success'); return _stuff_redirect('journal')
 
 
 @bp.post('/my-stuff/card/<int:card_id>/delete')
 def my_stuff_card_delete(card_id):
     user = _current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
     db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
     if row and row['image_filename']:
         try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'], row['image_filename']))
         except OSError: pass
-    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff'))
+    flash('Card deleted.','success'); return _stuff_redirect('journal')
 
 
 @bp.post('/my-stuff/copy/save')
 def my_stuff_copy_save():
     user = _current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db=get_db(); item_id=request.form.get('item_id','').strip(); label=request.form.get('label','').strip()[:80]
     value=request.form.get('value','').strip(); note=request.form.get('note','').strip()[:180]
     if not label or not value:
-        flash('Add a name and the number/code you want to keep.','error'); return redirect(url_for('public.my_stuff'))
+        flash('Add a name and the number/code you want to keep.','error'); return _stuff_redirect('copy-paste')
     if item_id:
         db.execute('UPDATE saved_copies SET label=?,value=?,note=?,updated_at=? WHERE id=? AND user_id=?',(label,value,note,now(),item_id,user['id']))
         msg='Saved number updated.'
     else:
         db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now()))
         msg='Saved to Copy.'
-    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff'))
+    db.commit(); flash(msg,'success'); return _stuff_redirect('copy-paste')
 
 
 @bp.post('/my-stuff/copy/<int:item_id>/delete')
 def my_stuff_copy_delete(item_id):
     user=_current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit()
-    flash('Saved number deleted.','success'); return redirect(url_for('public.my_stuff'))
+    flash('Saved number deleted.','success'); return _stuff_redirect('copy-paste')
 
 
 @bp.post('/my-stuff/image')
 def my_stuff_image_upload():
     user=_current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     f=request.files.get('image'); operation=request.form.get('operation','clean')
     if not f or not f.filename:
-        flash('Choose an image first.','error'); return redirect(url_for('public.my_stuff'))
+        flash('Choose an image first.','error'); return _stuff_redirect('edits-studio')
     if operation not in {'clean','grayscale','web'}: operation='clean'
     try:
         from PIL import Image, ImageOps
         raw=f.read()
         from io import BytesIO
-        source=Image.open(BytesIO(raw))
-        source.verify()
-        source=Image.open(BytesIO(raw)).convert('RGB')
-        source=ImageOps.exif_transpose(source)
+        source=Image.open(BytesIO(raw)); source.verify()
+        source=Image.open(BytesIO(raw)).convert('RGB'); source=ImageOps.exif_transpose(source)
         if operation=='grayscale': source=ImageOps.grayscale(source).convert('RGB')
         elif operation=='web': source.thumbnail((1600,1600), Image.Resampling.LANCZOS)
         out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id']))
@@ -879,13 +983,13 @@ def my_stuff_image_upload():
         flash('Image processed. Metadata has been removed from the new file.','success')
     except Exception:
         flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
-    return redirect(url_for('public.my_stuff'))
+    return _stuff_redirect('edits-studio')
 
 
 @bp.get('/my-stuff/image/<int:image_id>')
 def my_stuff_image(image_id):
     user=_current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     row=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
     if not row: abort(404)
     path=os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename'])
@@ -895,13 +999,13 @@ def my_stuff_image(image_id):
 @bp.post('/my-stuff/image/<int:image_id>/delete')
 def my_stuff_image_delete(image_id):
     user=_current_user_for_stuff()
-    if not user or not session.get('stuff_unlocked'): abort(403)
+    if not user: abort(403)
     db=get_db(); row=db.execute('SELECT filename FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
     db.execute('DELETE FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])); db.commit()
     if row:
         try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']))
         except OSError: pass
-    flash('Image history item deleted.','success'); return redirect(url_for('public.my_stuff'))
+    flash('Image history item deleted.','success'); return _stuff_redirect('edits-studio')
 
 
 @bp.get('/media/<path:filename>')

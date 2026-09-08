@@ -1,0 +1,50 @@
+{% extends 'base.html' %}{% block content %}
+<section class="journal-reader-shell">
+  <div class="journal-reader-top">
+    <a class="text-link" href="{{ url_for('public.my_stuff', section='journal') }}">← Back to My Journal</a>
+    <span class="private-chip">PRIVATE · ONLY YOU</span>
+  </div>
+
+  {% if edit %}
+  <section class="journal-editor-card">
+    <div class="journal-editor-heading"><div><span class="eyebrow">EDIT STORY</span><h1>Shape the words the way you remember them.</h1></div><span class="journal-mood-dot {{ entry.cover_color }}"></span></div>
+    <form method="post" action="{{ url_for('public.my_stuff_journal_save') }}" class="journal-form" id="journalForm">
+      <input type="hidden" name="entry_id" value="{{ entry.id }}">
+      <label>Title<input name="title" maxlength="140" value="{{ entry.title }}" required></label>
+      <div class="field-grid journal-fields">
+        <label>Mood<select name="mood">{% for m in moods %}<option value="{{ m }}" {% if entry.mood==m %}selected{% endif %}>{{ m|title }}</option>{% endfor %}</select></label>
+        <label>Tags <span class="micro">Optional · separated by commas</span><input name="tags" maxlength="240" value="{{ entry.tags }}" placeholder="journey, family, ideas"></label>
+      </div>
+      <label>Your story<textarea name="body" id="journalBody" rows="18" required>{{ entry.body }}</textarea></label>
+      <div class="journal-editor-meta"><span id="journalCount">0 words · 0 characters</span><span id="journalReadTime">About 1 min read</span></div>
+      <div class="button-row"><button class="button primary">Save changes</button><a class="button secondary" href="{{ url_for('public.my_stuff_journal_view', entry_id=entry.id) }}">Cancel</a></div>
+    </form>
+  </section>
+  {% else %}
+  <article class="journal-reader-card {{ entry.cover_color }}">
+    <div class="journal-reader-meta"><span>{{ entry.mood|title }}</span><span>{{ entry.updated_at }}</span></div>
+    <h1>{{ entry.title }}</h1>
+    {% if entry.tags %}<div class="journal-tags">{% for tag in entry.tags.split(',') %}<span>{{ tag.strip() }}</span>{% endfor %}</div>{% endif %}
+    <div class="journal-reading-info"><span id="readWords">0 words</span><span id="readTime">About 1 min read</span><span>Private journal</span></div>
+    <div class="journal-story" id="journalStory">{{ entry.body }}</div>
+    <div class="journal-reader-actions">
+      <a class="button primary" href="{{ url_for('public.my_stuff_journal_view', entry_id=entry.id, edit=1) }}">Edit story</a>
+      <form method="post" action="{{ url_for('public.my_stuff_journal_favorite', entry_id=entry.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="button secondary">{{ '★ Saved' if entry.favorite else '☆ Save as favourite' }}</button></form>
+      <form method="post" action="{{ url_for('public.my_stuff_journal_archive', entry_id=entry.id) }}"><input type="hidden" name="next" value="{{ url_for('public.my_stuff',section='journal') }}"><button class="button secondary">Archive</button></form>
+      <form method="post" action="{{ url_for('public.my_stuff_journal_delete', entry_id=entry.id) }}" onsubmit="return confirm('Delete this journal story permanently?')"><button class="mini-action danger">Delete</button></form>
+    </div>
+  </article>
+  {% endif %}
+
+  <div class="journal-privacy-note"><strong>Your journal is private.</strong><span>These stories are tied to your account. Other users cannot browse, search or open your journal entries.</span></div>
+</section>
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  const text=document.getElementById('journalStory');
+  const body=document.getElementById('journalBody');
+  function stats(value){const words=(value.trim().match(/\S+/g)||[]).length;return {words,chars:value.length,minutes:Math.max(1,Math.ceil(words/220))}}
+  if(text){const s=stats(text.textContent||'');document.getElementById('readWords').textContent=s.words+' words';document.getElementById('readTime').textContent='About '+s.minutes+' min read';}
+  if(body){const sync=()=>{const s=stats(body.value);document.getElementById('journalCount').textContent=s.words+' words · '+s.chars+' characters';document.getElementById('journalReadTime').textContent='About '+s.minutes+' min read';localStorage.setItem('or-journal-draft-'+document.querySelector('input[name="entry_id"]').value,JSON.stringify({title:document.querySelector('input[name="title"]').value,body:body.value,savedAt:Date.now()}))};body.addEventListener('input',sync);sync();}
+})();
+</script>{% endblock %}

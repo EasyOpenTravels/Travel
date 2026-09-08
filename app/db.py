@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL,
  email TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, recovery_question TEXT NOT NULL,
  recovery_answer_hash TEXT NOT NULL, remember_token TEXT, remember_until TEXT,
- deleted_at TEXT, created_at TEXT NOT NULL
+ deleted_at TEXT, simple_id_hash TEXT, journal_card_uses INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trips (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
@@ -207,6 +207,20 @@ CREATE TABLE IF NOT EXISTS stuff_images (
  created_at TEXT NOT NULL,
  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS journal_entries (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ title TEXT NOT NULL,
+ body TEXT NOT NULL DEFAULT '',
+ mood TEXT NOT NULL DEFAULT 'thoughts',
+ tags TEXT DEFAULT '',
+ cover_color TEXT NOT NULL DEFAULT 'cream',
+ favorite INTEGER NOT NULL DEFAULT 0,
+ archived INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 
 '''
 
@@ -238,6 +252,8 @@ def init_db(app):
                 'remember_until': 'ALTER TABLE users ADD COLUMN remember_until TEXT',
                 'deleted_at': 'ALTER TABLE users ADD COLUMN deleted_at TEXT',
                 'stuff_id_hash': 'ALTER TABLE users ADD COLUMN stuff_id_hash TEXT',
+                'simple_id_hash': 'ALTER TABLE users ADD COLUMN simple_id_hash TEXT',
+                'journal_card_uses': 'ALTER TABLE users ADD COLUMN journal_card_uses INTEGER NOT NULL DEFAULT 0',
             },
             'bookings': {
                 'payment_method': "ALTER TABLE bookings ADD COLUMN payment_method TEXT DEFAULT ''",
