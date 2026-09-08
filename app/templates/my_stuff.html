@@ -1,8 +1,8 @@
 {% extends 'base.html' %}{% block content %}
-<section class="stuff-door-only">
-  <a class="stuff-door-choice stuff-door-journal" href="{{ url_for('public.my_stuff_journal') }}"><span>01</span><strong>My Journal</strong><small>Your private stories, memories and reading space.</small></a>
-  <a class="stuff-door-choice stuff-door-copy" href="{{ url_for('public.my_stuff_copy_paste') }}"><span>02</span><strong>My Copy & Paste</strong><small>Long numbers and codes, ready when you need them.</small></a>
-  <a class="stuff-door-choice stuff-door-studio" href="{{ url_for('public.my_stuff_edits_studio') }}"><span>03</span><strong>My Edits Studio</strong><small>A clean image desk for useful edits.</small></a>
+<section class="stuff-door-only" aria-label="My Stuff">
+  <a class="stuff-door-button stuff-door-journal" href="{{ url_for('public.my_stuff_journal') }}">01&nbsp;&nbsp; My Journal</a>
+  <a class="stuff-door-button stuff-door-copy" href="{{ url_for('public.my_stuff_copy_paste') }}">02&nbsp;&nbsp; My Copy &amp; Paste</a>
+  <a class="stuff-door-button stuff-door-studio" href="{{ url_for('public.my_stuff_edits_studio') }}">03&nbsp;&nbsp; My Edits Studio</a>
 </section>
 {% endblock %}
 {% block scripts %}<script>document.body.classList.add('stuff-door-body');</script>{% endblock %}

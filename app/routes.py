@@ -777,11 +777,10 @@ def _journal_sidebar_data(user, view='active'):
 
 @bp.get('/my-stuff')
 def my_stuff():
-    user=_current_user_for_stuff()
-    if not user:
-        session['next_url']=request.full_path
-        return redirect(url_for('public.login'))
-    return render_template('my_stuff.html', user=user)
+    # My Stuff is always an open doorway. It must never show a PIN/login gate.
+    # Individual spaces may still request account access when their private
+    # server-backed content is opened.
+    return render_template('my_stuff.html')
 
 @bp.get('/my-stuff/journal')
 def my_stuff_journal():
