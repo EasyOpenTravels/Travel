@@ -2,11 +2,9 @@ import os, re, shutil, sqlite3, hmac, secrets, zipfile, pathlib
 from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash, check_password_hash
 from .db import get_db,SCHEMA
-from .security import now, encrypt_secret, decrypt_secret
+from .security import now
 from .qr import make_qr_bytes
-from .payments import payment_callback_url
 import io
 
 admin_bp=Blueprint('admin',__name__)
@@ -137,104 +135,17 @@ def service_request_status(request_id):
     if status not in ('new','contacted','planning','complete','closed'): abort(400)
     db=get_db(); db.execute('UPDATE service_requests SET status=? WHERE id=?',(status,request_id)); db.commit(); flash('Service request updated.','success'); return redirect(url_for('admin.service_requests'))
 
-def _payment_control_hash(db):
-    row=db.execute("SELECT value FROM settings WHERE key='payment_control_password_hash'").fetchone()
-    return row['value'] if row else ''
-
-
-def _payment_control_auth_required():
-    return not bool(session.get('payment_control_auth'))
-
-
-@admin_bp.route('/payment-control', methods=['GET','POST'])
-def payment_control():
-    gate=guard()
-    if gate:return gate
-    db=get_db()
-    stored_hash=_payment_control_hash(db)
-    if not stored_hash:
-        if request.method=='POST' and request.form.get('section')=='setup_password':
-            pw=request.form.get('payment_control_password','')
-            confirm=request.form.get('payment_control_password_confirm','')
-            if len(pw) < 14 or pw != confirm:
-                flash('Use a matching payment-control password of at least 14 characters.','error')
-                return redirect(url_for('admin.payment_control'))
-            db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('payment_control_password_hash',?)",(generate_password_hash(pw),))
-            db.commit(); session['payment_control_auth']=True
-            flash('Payment Control is protected.','success')
-            return redirect(url_for('admin.payment_control'))
-        return render_template('admin_payment_gate.html', first_setup=True)
-    if _payment_control_auth_required():
-        if request.method=='POST' and request.form.get('section')=='unlock':
-            pw=request.form.get('payment_control_password','')
-            if check_password_hash(stored_hash,pw):
-                session['payment_control_auth']=True
-                return redirect(url_for('admin.payment_control'))
-            flash('Payment Control password is incorrect.','error')
-        return render_template('admin_payment_gate.html', first_setup=False)
-
-    secret_fields=['mpesa_consumer_key','mpesa_consumer_secret','mpesa_passkey','mpesa_callback_token']
-    if request.method=='POST':
-        section=request.form.get('section','collection')
-        if section=='credentials':
-            for key in secret_fields:
-                raw=request.form.get(key,'').strip()
-                if raw:
-                    db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,encrypt_secret(raw)))
-            db.commit(); flash('Daraja connection saved securely.','success')
-        elif section=='collection':
-            for key in ['payment_till','payment_paybill','payment_name','payment_business_shortcode','payment_transaction_type','payment_currency']:
-                db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,request.form.get(key,'').strip()))
-            try: fee=max(0.0,min(100.0,float(request.form.get('ticketing_fee_percent','5') or 0)))
-            except ValueError: fee=5.0
-            db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',('ticketing_fee_percent',str(fee)))
-            db.commit(); flash('Collection settings saved.','success')
-        elif section=='change_password':
-            current=request.form.get('current_password','')
-            new=request.form.get('new_password','')
-            confirm=request.form.get('new_password_confirm','')
-            if not check_password_hash(stored_hash,current):
-                flash('Current payment-control password is incorrect.','error')
-            elif len(new)<14 or new!=confirm:
-                flash('Use a matching password of at least 14 characters.','error')
-            else:
-                db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('payment_control_password_hash',?)",(generate_password_hash(new),)); db.commit(); session['payment_control_auth']=True; flash('Payment Control password changed.','success')
-        elif section=='delete_configuration':
-            pw=request.form.get('delete_password','')
-            if not check_password_hash(stored_hash,pw):
-                flash('Payment Control password is required to remove payment configuration.','error')
-            else:
-                keys=secret_fields+['payment_till','payment_paybill','payment_name','payment_business_shortcode','payment_transaction_type','payment_currency','ticketing_fee_percent']
-                db.execute("DELETE FROM settings WHERE key IN (%s)" % ','.join('?'*len(keys)), keys)
-                db.commit(); session.pop('payment_control_auth',None)
-                flash('Payment configuration removed. Existing confirmed payments remain in the ledger.','success')
-        else:
-            abort(400)
-        return redirect(url_for('admin.payment_control'))
-    vals={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
-    states={k:bool(decrypt_secret(vals.get(k,''))) for k in secret_fields}
-    from .payments import mpesa_configured
-    return render_template('admin_payment_settings.html',settings=vals,secret_state=states,mpesa_ready=mpesa_configured(),callback_url=payment_callback_url())
-
-
-@admin_bp.route('/payment-settings', methods=['GET','POST'])
-def payment_settings():
-    return redirect(url_for('admin.payment_control'))
-
 @admin_bp.post('/settings')
 def settings():
     g=guard()
     if g:return g
     db=get_db()
-    allowed=['promo_counter','promo_growth_daily','payment_paybill','payment_till','payment_name','ticketing_fee_percent','contact_phone','contact_email','site_tagline']
+    allowed=['promo_counter','promo_growth_daily','payment_paybill','payment_till','payment_name','contact_phone','contact_email','site_tagline']
     for key in allowed:
         value=request.form.get(key,'').strip()
         if key in ('promo_counter','promo_growth_daily'):
             try:value=str(max(0,int(value)))
             except ValueError:value='0'
-        if key == 'ticketing_fee_percent':
-            try: value=str(max(0.0,min(100.0,float(value or 0))))
-            except ValueError: value='5'
         db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,value))
     db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('promo_anchor',?)",(datetime.now(timezone.utc).date().isoformat(),)); db.commit(); flash('Settings saved.','success'); return redirect(url_for('admin.dashboard'))
 
@@ -294,43 +205,6 @@ def group_retreat_delete(group_id):
     if g:return g
     db=get_db(); db.execute('DELETE FROM group_members WHERE retreat_id=?',(group_id,)); db.execute('DELETE FROM group_retreats WHERE id=?',(group_id,)); db.commit(); flash('Group retreat deleted.','success'); return redirect(url_for('admin.group_retreats_admin'))
 
-@admin_bp.get('/payments')
-def payments():
-    g=guard()
-    if g:return g
-    rows=get_db().execute('SELECT * FROM payment_intents ORDER BY id DESC LIMIT 250').fetchall()
-    return render_template('admin_payments.html',payments=rows,mpesa_ready=bool(os.environ.get('MPESA_CONSUMER_KEY') and os.environ.get('MPESA_CONSUMER_SECRET') and os.environ.get('MPESA_PASSKEY') and os.environ.get('MPESA_CALLBACK_TOKEN') and get_db().execute("SELECT value FROM settings WHERE key='payment_till'").fetchone() and get_db().execute("SELECT value FROM settings WHERE key='payment_till'").fetchone()['value']),callback_url=payment_callback_url())
-
-@admin_bp.post('/event-ticketing/<int:event_id>/ticket/<int:ticket_id>/reverse')
-def admin_event_ticket_reverse(event_id,ticket_id):
-    g=guard()
-    if g:return g
-    db=get_db()
-    row=db.execute('SELECT * FROM event_tickets WHERE id=? AND event_id=?',(ticket_id,event_id)).fetchone()
-    if not row: abort(404)
-    db.execute("UPDATE event_tickets SET approval_status='reversed' WHERE id=? AND event_id=?",(ticket_id,event_id))
-    db.commit(); flash('Ticket decision reversed. The payment record remains preserved.','success'); return redirect(url_for('admin.event_ticketing'))
-
-@admin_bp.post('/event-ticketing/<int:event_id>/ticket/<int:ticket_id>/restore')
-def admin_event_ticket_restore(event_id,ticket_id):
-    g=guard()
-    if g:return g
-    db=get_db(); row=db.execute("SELECT t.*,p.status payment_tx_status FROM event_tickets t LEFT JOIN payment_intents p ON p.kind='event_ticket' AND p.target_id=t.id AND p.status='paid' WHERE t.id=? AND t.event_id=? ORDER BY p.id DESC LIMIT 1",(ticket_id,event_id)).fetchone()
-    if not row: abort(404)
-    if row['payment_tx_status']=='paid':
-        db.execute("UPDATE event_tickets SET approval_status='approved',payment_status='verified',ticket_status=CASE WHEN ticket_status='void' THEN 'valid' ELSE ticket_status END,approved_at=? WHERE id=? AND event_id=?",(now(),ticket_id,event_id)); db.commit(); flash('Confirmed paid ticket restored.','success')
-    else:
-        flash('Ticket cannot be restored until a confirmed payment exists.','error')
-    return redirect(url_for('admin.event_ticketing'))
-
-@admin_bp.post('/group-retreats/<int:group_id>/reverse')
-def admin_group_reverse(group_id):
-    g=guard()
-    if g:return g
-    db=get_db(); row=db.execute('SELECT id FROM group_retreats WHERE id=?',(group_id,)).fetchone()
-    if not row: abort(404)
-    db.execute("UPDATE group_retreats SET status='pending',approved_at=NULL WHERE id=?",(group_id,)); db.commit(); flash('Group retreat decision reversed and reopened.','success'); return redirect(url_for('admin.group_retreats_admin'))
-
 @admin_bp.get('/event-ticketing')
 def event_ticketing():
     g=guard()
@@ -343,8 +217,7 @@ def event_ticketing():
         "LEFT JOIN event_tickets t ON t.event_id=e.id "
         "GROUP BY e.id ORDER BY e.id DESC"
     ).fetchall()
-    tickets=db.execute("SELECT t.*,e.title event_title FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id ORDER BY t.id DESC LIMIT 300").fetchall()
-    return render_template('admin_event_ticketing.html',events=events,tickets=tickets)
+    return render_template('admin_event_ticketing.html',events=events)
 
 @admin_bp.post('/event-ticketing/<int:event_id>/approve/<int:ticket_id>')
 def admin_event_ticket_approve(event_id,ticket_id):

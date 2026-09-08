@@ -2,9 +2,8 @@ import re, secrets, sqlite3, os, hmac
 from datetime import datetime, timezone
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
-from .security import now, decrypt_secret, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
+from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
 from .qr import make_qr_bytes
-from .payments import create_payment_intent, start_payment, handle_mpesa_callback, payment_callback_url, mpesa_configured
 
 bp = Blueprint('public', __name__)
 
@@ -15,10 +14,6 @@ def slugify(text):
 def setting(key, default=''):
     row=get_db().execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
     return row['value'] if row else default
-
-def ticketing_fee_percent():
-    try: return max(0.0, min(100.0, float(setting('ticketing_fee_percent','5') or 0)))
-    except ValueError: return 5.0
 
 def promo_value():
     try: base=int(setting('promo_counter','3401')); growth=int(setting('promo_growth_daily','17'))
@@ -493,26 +488,15 @@ def event_public(slug):
 def event_request_ticket(slug):
     db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE slug=? AND active=1',(slug,)).fetchone()
     if not event: abort(404)
-    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); raw=request.form.get('amount','').strip(); phone=request.form.get('phone','').strip()
-    if not name or gender not in {'male','female'} or not phone:
-        flash('Enter your name, gender and M-Pesa number.','error'); return redirect(url_for('public.event_public',slug=slug))
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); raw=request.form.get('amount','').strip()
+    if not name or gender not in {'male','female'}:
+        flash('Enter the visitor name and choose male or female.','error'); return redirect(url_for('public.event_public',slug=slug))
     try: amount=max(0,int(raw))
     except ValueError:
-        flash('Enter the ticket amount.','error'); return redirect(url_for('public.event_public',slug=slug))
-    configured_prices={int(x) for x in [event['regular_price'] or 0,event['vip_price'] or 0,event['vvip_price'] or 0] if int(x or 0)>0}
-    if configured_prices and amount not in configured_prices:
-        flash('That amount does not match an available ticket tier for this event.','error'); return redirect(url_for('public.event_public',slug=slug))
+        flash('Enter the amount paid.','error'); return redirect(url_for('public.event_public',slug=slug))
     code,access=_make_event_ticket(db,event,name=name,gender=gender,amount=amount,source='visitor')
-    db.execute("UPDATE event_tickets SET payment_status='pending' WHERE ticket_code=?",(code,))
-    ticket=db.execute('SELECT * FROM event_tickets WHERE ticket_code=?',(code,)).fetchone()
-    intent=create_payment_intent(kind='event_ticket',target_id=ticket['id'],event_id=event['id'],amount=amount,phone=phone,metadata={'ticket_code':code,'event_slug':slug},fee_percent=ticketing_fee_percent())
-    db.execute("UPDATE event_tickets SET payment_method='M-Pesa STK' WHERE id=?",(ticket['id'],)); db.commit()
-    try:
-        start_payment(intent)
-    except Exception as exc:
-        db.execute("UPDATE event_tickets SET payment_status='failed' WHERE id=?",(ticket['id'],)); db.commit()
-        flash(str(exc),'error'); return redirect(url_for('public.event_public',slug=slug))
-    return render_template('event_payment_wait.html',ticket=ticket,intent=intent,event=event,access_token=access)
+    db.commit(); flash('Your request is submitted. Keep the ticket link on this device; it will unlock after approval.','success')
+    return redirect(url_for('public.event_ticket_access',access_token=access))
 
 @bp.post('/ticketing/event/<int:event_id>/add-attendee')
 def event_add_attendee(event_id):
@@ -719,56 +703,6 @@ def event_scan(ticket_code):
         return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
     guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
     return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance=guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
-
-@bp.post('/ticketing/payment/start/<access_token>')
-def event_payment_retry(access_token):
-    row=_event_ticket_row_by_access(access_token)
-    if not row or row['approval_status']=='approved': return redirect(url_for('public.event_ticket_access',access_token=access_token))
-    db=get_db(); intent=db.execute("SELECT * FROM payment_intents WHERE kind='event_ticket' AND target_id=? ORDER BY id DESC LIMIT 1",(row['id'],)).fetchone()
-    if not intent or intent['status'] in {'paid','pending'}:
-        return redirect(url_for('public.event_ticket_access',access_token=access_token))
-    try: start_payment(intent)
-    except Exception as exc: flash(str(exc),'error')
-    return redirect(url_for('public.event_ticket_access',access_token=access_token))
-
-@bp.get('/payments/status/<reference>')
-def payment_status(reference):
-    row=get_db().execute('SELECT reference,status,amount,currency FROM payment_intents WHERE reference=?',(reference,)).fetchone()
-    if not row: return jsonify(ok=False),404
-    return jsonify(ok=True,reference=row['reference'],status=row['status'],amount=row['amount'],currency=row['currency'])
-
-@bp.post('/payments/mpesa/callback/<token>')
-def mpesa_callback(token):
-    row=get_db().execute("SELECT value FROM settings WHERE key='mpesa_callback_token'").fetchone()
-    expected=decrypt_secret(row['value']) if row else current_app.config.get('MPESA_CALLBACK_TOKEN','')
-    if not expected or not hmac.compare_digest(str(expected),str(token or '')):
-        return jsonify(ResultCode=1,ResultDesc='Rejected'),403
-    result=handle_mpesa_callback(request.get_json(silent=True) or {})
-    return jsonify(ResultCode=0,ResultDesc='Accepted' if result.get('ok') else 'Received')
-
-@bp.post('/payments/mpesa/callback')
-def mpesa_callback_open():
-    # Kept only for development/sandbox if no callback token was provisioned. Production should use the tokenised route.
-    row=get_db().execute("SELECT value FROM settings WHERE key='mpesa_callback_token'").fetchone()
-    configured=decrypt_secret(row['value']) if row else current_app.config.get('MPESA_CALLBACK_TOKEN','')
-    if configured:
-        return jsonify(ResultCode=1,ResultDesc='Tokenised callback required'),403
-    result=handle_mpesa_callback(request.get_json(silent=True) or {})
-    return jsonify(ResultCode=0,ResultDesc='Accepted' if result.get('ok') else 'Received')
-
-@bp.post('/booking/<ref>/pay')
-def booking_pay(ref):
-    if not session.get('user_id'): return redirect(url_for('public.login',next=request.path))
-    db=get_db(); booking=db.execute('SELECT b.*,t.title FROM bookings b JOIN trips t ON t.id=b.trip_id WHERE b.ref=? AND b.user_id=?',(ref,session['user_id'])).fetchone()
-    if not booking: abort(404)
-    if booking['payment_status'] in {'paid','confirmed'}: return redirect(url_for('public.booking',ref=ref))
-    user=db.execute('SELECT phone FROM users WHERE id=?',(session['user_id'],)).fetchone()
-    try:
-        intent=create_payment_intent(kind='trip_booking',target_id=booking['id'],amount=booking['total'],phone=user['phone'],metadata={'booking_ref':ref},fee_percent=0)
-        start_payment(intent)
-    except Exception as exc:
-        flash(str(exc),'error'); return redirect(url_for('public.booking',ref=ref))
-    return render_template('payment_wait.html',intent=intent,title=booking['title'],return_url=url_for('public.booking',ref=ref),phone=user['phone'])
 
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)
