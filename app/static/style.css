@@ -512,3 +512,6 @@ html:has(.edits-v5){overflow-y:auto!important;overflow-x:hidden!important}
 :root{--jr-ink:#f4f6f7;--jr-page:#020506;--jr-accent:#77b8ff;--jr-line:1.75}
 .journal-v4-page p,.journal-v4-book>div,.journal-v4-page,.journal-v4-book{color:var(--jr-ink)}.journal-v4-page,.journal-v4-book>div{background-color:var(--jr-page)}.journal-v4-mood.active,.journal-v4-edit{background:var(--jr-accent)}.journal-v4-page p,.journal-v4-book>div{line-height:var(--jr-line)}.journal-v4-book>div{font-size:calc(var(--jr-font)*1px)}
 @media(max-width:600px){.journal-settings-screen{padding:10px 8px 28px}.journal-settings-card{padding:14px;border-radius:16px}.journal-settings-head h1{font-size:20px}.journal-theme-grid{grid-template-columns:1fr 1fr}.journal-setting-grid,.journal-color-row{grid-template-columns:1fr}.journal-setting-close{font-size:8px;padding:7px 9px}}
+
+/* My Stuff feedback should acknowledge the action, then get out of the way. */
+.flash{transition:opacity .22s ease,transform .22s ease}.flash-hide{opacity:0!important;transform:translateY(-6px)!important;pointer-events:none}
