@@ -716,10 +716,32 @@ def _ensure_stuff_session():
 
 
 def _current_user_for_stuff():
-    uid = session.get('user_id')
+    # My Stuff is an independent personal workspace. It never uses the
+    # normal Adventure PIN/login gate. Authenticated users use their account;
+    # visitors get a private anonymous workspace identified only by a session
+    # token. This keeps Travel booking/authentication completely unchanged.
+    uid = session.get('user_id') or session.get('stuff_user_id')
     if not uid:
-        return None
+        return _ensure_stuff_guest_user()
     return get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL', (uid,)).fetchone()
+
+
+def _ensure_stuff_guest_user():
+    existing = session.get('stuff_user_id')
+    db = get_db()
+    if existing:
+        row = db.execute('SELECT * FROM users WHERE id=? AND is_stuff_guest=1 AND deleted_at IS NULL', (existing,)).fetchone()
+        if row:
+            return row
+    guest_key = secrets.token_hex(16)
+    # Guest rows are deliberately unusable for normal Travel login.
+    cur = db.execute(
+        "INSERT INTO users(name,phone,email,pin_hash,recovery_question,recovery_answer_hash,is_stuff_guest,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        ('My Stuff Guest', 'guest-' + guest_key[:12], 'stuff-' + guest_key + '@local.openroad', hash_pin(secrets.token_hex(16)), 'none', hash_answer(secrets.token_hex(16)), 1, now())
+    )
+    db.commit()
+    session['stuff_user_id'] = cur.lastrowid
+    return db.execute('SELECT * FROM users WHERE id=?', (cur.lastrowid,)).fetchone()
 
 
 def _global_simple_id_hash(user):
@@ -778,14 +800,13 @@ def _journal_sidebar_data(user, view='active'):
 @bp.get('/my-stuff')
 def my_stuff():
     # My Stuff is always an open doorway. It must never show a PIN/login gate.
-    # Individual spaces may still request account access when their private
-    # server-backed content is opened.
+    # Journal, Cards, Copy & Paste and Edits Studio are all independently accessible.
+    # None of them redirects to the normal Adventure PIN/login gate.
     return render_template('my_stuff.html')
 
 @bp.get('/my-stuff/journal')
 def my_stuff_journal():
     user=_current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=request.full_path))
     user=_stuff_use_and_context(user,'stuff_journal_uses')
     view=request.args.get('view','active').strip().lower()
     if view not in {'active','archived'}: view='active'
@@ -836,7 +857,6 @@ def my_stuff_journal_save():
 @bp.get('/my-stuff/journal/<int:entry_id>')
 def my_stuff_journal_view(entry_id):
     user=_current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=request.full_path))
     row=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
     if not row: abort(404)
     return render_template('journal_entry.html',entry=row,moods=_journal_moods(),edit=request.args.get('edit')=='1')
@@ -891,7 +911,6 @@ def my_stuff_folder_delete(folder_id):
 @bp.get('/my-stuff/cards')
 def my_stuff_cards():
     user=_current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=request.full_path))
     user=_stuff_use_and_context(user,'stuff_card_uses')
     use_count=int(user['stuff_card_uses'] or 0)
     has_id=_stuff_id_ready(user)
@@ -1052,7 +1071,6 @@ def my_stuff_card_delete(card_id):
 @bp.get('/my-stuff/copy-paste')
 def my_stuff_copy_paste():
     user=_current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=request.full_path))
     user=_stuff_use_and_context(user,'stuff_copy_uses')
     db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
     edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
@@ -1079,7 +1097,6 @@ def my_stuff_copy_delete(item_id):
 @bp.get('/my-stuff/edits-studio')
 def my_stuff_edits_studio():
     user=_current_user_for_stuff()
-    if not user: return redirect(url_for('public.login', next=request.full_path))
     user=_stuff_use_and_context(user,'stuff_edits_uses')
     images=get_db().execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
     return render_template('my_edits_studio.html',user=user,images=images,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_edits_uses'] or 0))

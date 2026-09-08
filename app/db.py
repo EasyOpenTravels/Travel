@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL,
  email TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, recovery_question TEXT NOT NULL,
  recovery_answer_hash TEXT NOT NULL, remember_token TEXT, remember_until TEXT,
- deleted_at TEXT, simple_id_hash TEXT, journal_card_uses INTEGER NOT NULL DEFAULT 0, stuff_journal_uses INTEGER NOT NULL DEFAULT 0, stuff_copy_uses INTEGER NOT NULL DEFAULT 0, stuff_edits_uses INTEGER NOT NULL DEFAULT 0, stuff_card_uses INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+ deleted_at TEXT, simple_id_hash TEXT, is_stuff_guest INTEGER NOT NULL DEFAULT 0, journal_card_uses INTEGER NOT NULL DEFAULT 0, stuff_journal_uses INTEGER NOT NULL DEFAULT 0, stuff_copy_uses INTEGER NOT NULL DEFAULT 0, stuff_edits_uses INTEGER NOT NULL DEFAULT 0, stuff_card_uses INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trips (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
@@ -253,6 +253,7 @@ def init_db(app):
                 'deleted_at': 'ALTER TABLE users ADD COLUMN deleted_at TEXT',
                 'stuff_id_hash': 'ALTER TABLE users ADD COLUMN stuff_id_hash TEXT',
                 'simple_id_hash': 'ALTER TABLE users ADD COLUMN simple_id_hash TEXT',
+                'is_stuff_guest': 'ALTER TABLE users ADD COLUMN is_stuff_guest INTEGER NOT NULL DEFAULT 0',
                 'journal_card_uses': 'ALTER TABLE users ADD COLUMN journal_card_uses INTEGER NOT NULL DEFAULT 0',
                 'stuff_journal_uses': 'ALTER TABLE users ADD COLUMN stuff_journal_uses INTEGER NOT NULL DEFAULT 0',
                 'stuff_copy_uses': 'ALTER TABLE users ADD COLUMN stuff_copy_uses INTEGER NOT NULL DEFAULT 0',

@@ -33,7 +33,7 @@
     {% endif %}
   </main>
 </div>
-{% if card_locked or not simple_id_exists %}<dialog id="cardIdPanel" class="id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="cards"><div class="eyebrow">CARD MAKER · ONE ID</div><h2>Create the one ID you can use everywhere.</h2><p>My Stuff has no lock. This prompt belongs only to Card Maker after its usage limit, and the same ID works throughout Open Road.</p><label>Your ID<input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" placeholder="e.g. ROAD26" required></label><div class="button-row"><button class="button secondary" type="button" onclick="this.closest('dialog').close()">Not now</button><button class="button primary">Create ID</button></div></form></dialog>{% endif %}
+{% if card_locked %}<dialog id="cardIdPanel" class="id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="cards"><div class="eyebrow">CARD MAKER · ONE ID</div><h2>Create the one ID you can use everywhere.</h2><p>My Stuff has no lock. This prompt appears only after the Card Maker usage limit. The same ID works throughout Open Road.</p><label>Your ID<input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" placeholder="e.g. ROAD26" required></label><div class="button-row"><button class="button secondary" type="button" onclick="this.closest('dialog').close()">Not now</button><button class="button primary">Create ID</button></div></form></dialog>{% endif %}
 {% endblock %}
 {% block scripts %}<script>
 document.body.classList.add('personal-route-body');
