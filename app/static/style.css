@@ -397,3 +397,91 @@ body.stuff-door-body main{height:100dvh;min-height:100dvh;margin:0;padding:0;ove
   .edits-v5-card-actions button{padding:10px 7px;font-size:9px}
   .edits-v5-side{top:101px}
 }
+
+
+/* FINAL SCROLL PASS — keep every My Stuff space usable on a real phone */
+html:has(.stuff-door-v3),
+html:has(.journal-v4),
+html:has(.saves-v4),
+html:has(.edits-v5){overflow-y:auto!important;overflow-x:hidden!important}
+
+.stuff-door-v3{
+  min-height:100dvh!important;
+  height:auto!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  -webkit-overflow-scrolling:touch;
+}
+
+/* Journal: the entire journal is the scroll surface, never a clipped nested box. */
+.personal-route-body:has(.journal-v4) main{
+  height:auto!important;
+  min-height:100dvh!important;
+  overflow:visible!important;
+}
+.journal-v4{
+  height:auto!important;
+  min-height:100dvh!important;
+  overflow:visible!important;
+}
+.journal-v4-main{
+  height:auto!important;
+  min-height:calc(100dvh - 52px)!important;
+  overflow:visible!important;
+  -webkit-overflow-scrolling:touch;
+}
+.journal-v4-write{
+  min-height:calc(100dvh - 52px)!important;
+  padding-bottom:28px!important;
+}
+.journal-v4-composer{
+  margin-bottom:14px!important;
+}
+
+/* Saves: one simple vertical page; the centered list can scroll naturally. */
+.personal-route-body:has(.saves-v4) main{
+  height:auto!important;
+  min-height:100dvh!important;
+  overflow:visible!important;
+}
+.saves-v4{
+  height:auto!important;
+  min-height:100dvh!important;
+  overflow:visible!important;
+}
+.saves-v4-list{
+  max-height:none!important;
+  height:auto!important;
+  overflow:visible!important;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:110px!important;
+}
+.saves-v4-row{width:100%;}
+
+/* My Edits: natural vertical scrolling on narrow phones, centered workspace. */
+.personal-route-body:has(.edits-v5) main{
+  height:auto!important;
+  min-height:calc(100dvh - 88px)!important;
+  overflow:visible!important;
+}
+.edits-v5{
+  height:auto!important;
+  min-height:100dvh!important;
+  overflow:visible!important;
+}
+.edits-v5-main{
+  min-width:0!important;
+  width:100%!important;
+  max-width:100%!important;
+  overflow-x:hidden!important;
+  overflow-y:visible!important;
+  -webkit-overflow-scrolling:touch;
+}
+@media(max-width:900px){
+  .edits-v5-main{padding-bottom:28px!important;}
+  .edits-v5-card-work{min-width:0!important;width:100%!important;}
+  .edits-v5-preview-pane,.edits-v5-card-form{width:100%!important;max-width:100%!important;}
+}
+
+/* Don't let the browser create an accidental sideways page from long values. */
+.saves-v4,.saves-v4 *,.journal-v4,.journal-v4 *,.edits-v5,.edits-v5 *{min-width:0;}
