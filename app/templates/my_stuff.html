@@ -1,14 +1,14 @@
 {% extends 'base.html' %}{% block content %}
-<section class="stuff-door-mobile" aria-label="My Stuff">
-  <div class="stuff-door-inner">
-    <div class="stuff-door-kicker">MY STUFF</div>
-    <h1>Pick your little space.</h1>
-    <p>Three simple tools. No clutter.</p>
-    <div class="stuff-door-buttons">
-      <a class="stuff-door-pill journal" href="{{ url_for('public.my_stuff_journal') }}"><span>01</span><strong>Journal</strong><b>words &amp; memories</b></a>
-      <a class="stuff-door-pill saves" href="{{ url_for('public.my_stuff_copy_paste') }}"><span>02</span><strong>Saves</strong><b>numbers &amp; codes</b></a>
-      <a class="stuff-door-pill studio" href="{{ url_for('public.my_stuff_edits_studio') }}"><span>03</span><strong>My Edits</strong><b>make &amp; edit</b></a>
+<section class="stuff-door-v3" aria-label="My Stuff">
+  <div class="stuff-door-v3-inner">
+    <div class="stuff-door-v3-mini">A LITTLE SPACE OF YOUR OWN</div>
+    <h1>My Stuff</h1>
+    <p class="stuff-door-v3-sub">Pick something fun to do.</p>
+    <div class="stuff-door-v3-buttons">
+      <a href="{{ url_for('public.my_stuff_journal') }}" class="stuff-tool-btn journal"><span>01</span><strong>Journal</strong><small>memories & moods</small></a>
+      <a href="{{ url_for('public.my_stuff_copy_paste') }}" class="stuff-tool-btn saves"><span>02</span><strong>Saves</strong><small>numbers & codes</small></a>
+      <a href="{{ url_for('public.my_stuff_edits_studio') }}" class="stuff-tool-btn edits"><span>03</span><strong>My Edits</strong><small>make something lovely</small></a>
     </div>
   </div>
 </section>
-{% endblock %}{% block scripts %}<script>document.body.classList.add('stuff-door-body');</script>{% endblock %}
+{% endblock %}{% block scripts %}<script>document.body.classList.add('stuff-door-body-v3');</script>{% endblock %}

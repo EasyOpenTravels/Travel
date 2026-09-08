@@ -1,10 +1,37 @@
 {% extends 'base.html' %}{% block content %}
-<div class="saves-phone-app">
-  <header class="saves-top"><a class="saves-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a><h1>Saves</h1><button class="saves-plus" type="button" onclick="document.getElementById('saveSheet').classList.add('open')">＋</button></header>
-  <section class="saves-search-wrap"><input id="saveSearch" type="search" placeholder="Search saved numbers &amp; codes…"></section>
-  <main class="saves-list" id="savesList">
-    {% for item in copies %}<article class="save-item" data-search="{{ (item.label ~ ' ' ~ item.value)|lower }}"><div><strong>{{ item.label }}</strong><code>{{ item.value }}</code></div><div class="save-item-actions"><button class="save-copy-btn" data-value="{{ item.value|e }}">Copy</button><a href="{{ url_for('public.my_stuff_copy_paste',edit=item.id) }}#save">Edit</a><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button type="submit">Delete</button></form></div></article>{% else %}<div class="saves-empty">Your saved numbers and codes will sit here.</div>{% endfor %}
+<div class="saves-v3">
+  <header class="saves-v3-top">
+    <a class="saves-v3-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
+    <div class="saves-v3-title"><span>02 · SAVES</span><h1>Saves</h1></div>
+    <button class="saves-v3-search-btn" type="button" onclick="document.getElementById('saveSearch').focus()">⌕</button>
+  </header>
+  <section class="saves-v3-search"><input id="saveSearch" type="search" placeholder="Search your saved numbers or codes…" autocomplete="off"></section>
+  <main class="saves-v3-list" id="savesList">
+    {% for item in copies %}
+    <article class="save-v3-row" data-search="{{ (item.label ~ ' ' ~ item.value)|lower }}">
+      <div class="save-v3-copy" onclick="copyValue(this.querySelector('code').textContent,this.querySelector('.copy-state'))">
+        <strong>{{ item.label }}</strong><code>{{ item.value }}</code><small class="copy-state">tap to copy</small>
+      </div>
+      <div class="save-v3-actions"><a href="{{ url_for('public.my_stuff_copy_paste',edit=item.id) }}#save">Edit</a><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button>Delete</button></form></div>
+    </article>
+    {% else %}<div class="saves-v3-empty"><b>Nothing saved yet.</b><span>Your little list of tills, paybills, numbers and codes will live here.</span></div>{% endfor %}
   </main>
-  <div class="save-sheet" id="saveSheet"><button class="save-sheet-close" type="button" onclick="document.getElementById('saveSheet').classList.remove('open')">×</button><form method="post" action="{{ url_for('public.my_stuff_copy_save') }}"><input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}"><label>Name<input name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="Home Till" required></label><label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="Paste it here" required></label><button class="saves-save-btn">{{ 'Update' if edit_item else 'Save' }}</button></form></div>
+  <div class="saves-v3-sheet" id="saveSheet">
+    <button class="saves-v3-sheet-close" type="button" onclick="closeSaveSheet()">×</button>
+    <div class="saves-v3-sheet-label">NEW SAVE</div>
+    <form method="post" action="{{ url_for('public.my_stuff_copy_save') }}">
+      <input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}">
+      <label>Name<input name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My Till" required></label>
+      <label>Number / value<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="Paste the number or code" required></label>
+      <button class="saves-v3-save">{{ 'Update save' if edit_item else 'Save it' }}</button>
+    </form>
+  </div>
+  <button class="saves-v3-plus" type="button" onclick="document.getElementById('saveSheet').classList.add('open');document.querySelector('#saveSheet input[name=label]')?.focus()">＋</button>
 </div>
-{% endblock %}{% block scripts %}<script>document.body.classList.add('personal-route-body','saves-route-body');const q=document.getElementById('saveSearch');q?.addEventListener('input',()=>{const s=q.value.toLowerCase().trim();document.querySelectorAll('.save-item').forEach(r=>r.hidden=!!s&&!r.dataset.search.includes(s))});document.querySelectorAll('.save-item').forEach(r=>{let t;const start=()=>t=setTimeout(()=>r.classList.add('show-more'),520),end=()=>clearTimeout(t);r.addEventListener('touchstart',start,{passive:true});r.addEventListener('touchend',end,{passive:true});r.addEventListener('touchmove',end,{passive:true})});document.querySelectorAll('.save-copy-btn').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.value)}catch{const t=document.createElement('textarea');t.value=b.dataset.value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}const x=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=x,1000)});if(location.hash==='#save')document.getElementById('saveSheet').classList.add('open');</script>{% endblock %}
+{% endblock %}{% block scripts %}<script>
+document.body.classList.add('personal-route-body','saves-v3-body');
+const q=document.getElementById('saveSearch');q?.addEventListener('input',()=>{const s=q.value.toLowerCase().trim();document.querySelectorAll('.save-v3-row').forEach(r=>r.hidden=!!s&&!r.dataset.search.includes(s));});
+async function copyValue(value,state){try{await navigator.clipboard.writeText(value)}catch{const t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}if(state){state.textContent='Copied ✓';clearTimeout(state._timer);state._timer=setTimeout(()=>state.textContent='tap to copy',1100)}}
+function closeSaveSheet(){document.getElementById('saveSheet')?.classList.remove('open')}
+if(location.hash==='#save'){document.getElementById('saveSheet')?.classList.add('open')}
+</script>{% endblock %}
