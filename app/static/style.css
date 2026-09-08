@@ -296,3 +296,59 @@ body.stuff-door-body main{height:100dvh;min-height:100dvh;margin:0;padding:0;ove
 @media(max-width:700px){
  .edits-v5{grid-template-columns:1fr;grid-template-rows:54px 36px minmax(0,1fr)}.edits-v5-top{grid-template-columns:auto 1fr auto;padding:0 8px}.edits-v5-stuff,.edits-v5-menu{padding:8px 9px;font-size:9px}.edits-v5-head span{font-size:6px}.edits-v5-head h1{font-size:18px}.edits-v5-side{position:fixed;z-index:80;left:0;top:90px;bottom:0;width:min(280px,84vw);transform:translateX(-105%);transition:transform .2s;box-shadow:16px 0 50px rgba(0,0,0,.18)}body.edits-v5-drawer-open .edits-v5-side{transform:translateX(0)}.edits-v5-main{padding:6px}.edits-v5-card-work{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.edits-v5-preview-pane{grid-template-rows:28px minmax(0,1fr) 48px;padding:6px}.edits-v5-card-preview{width:min(92%,360px);height:min(74%,370px);padding:25px}.edits-v5-card-preview h2{font-size:29px}.edits-v5-card-preview p{font-size:13px}.edits-v5-samples{gap:4px}.edits-v5-samples .sample{padding:7px 4px;font-size:7px}.edits-v5-card-form{height:235px;padding:8px;gap:6px}.edits-v5-card-form>textarea{height:62px}.edits-v5-choices{max-height:86px;overflow:auto}.swatches i{width:22px;height:22px}.chips b{font-size:7px;padding:4px 6px}.edits-v5-branding{padding:2px 0}.edits-v5-card-actions button{padding:8px 5px}.edits-v5-photo-work{grid-template-rows:minmax(0,1fr) 58px}.edits-v5-photo-tools{grid-template-columns:1fr 1fr 1fr;gap:5px;padding:7px}.edits-v5-photo-tools button{padding:8px 5px}.edits-v5-photo-tools small{grid-column:1/-1;text-align:center}.edits-v5-lock h2{font-size:22px}
 }
+
+
+/* FINAL PHONE PASS — keep My Stuff tools genuinely phone-first */
+@media (max-width: 900px){
+  /* Journal: keep the reading page large, composer visible, allow only a small natural vertical scroll */
+  .journal-v4{height:100dvh;display:grid;grid-template-columns:1fr;grid-template-rows:52px minmax(0,1fr);overflow:hidden}
+  .journal-v4-top{grid-template-columns:auto 1fr auto;padding:0 8px}
+  .journal-v4-back{padding:8px 12px;font-size:10px;box-shadow:2px 2px 0 #081218}
+  .journal-v4-title span{font-size:6px}.journal-v4-title h1{font-size:19px}
+  .journal-v4-stories{padding:8px 10px;font-size:9px}
+  .journal-v4-drawer{top:52px;width:min(300px,86vw)}
+  .journal-v4-main{height:calc(100dvh - 52px);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+  .journal-v4-write{height:auto;min-height:calc(100dvh - 52px);grid-template-rows:auto minmax(0,48dvh) 145px;gap:7px;padding:7px 8px 16px}
+  .journal-v4-intro{width:100%}
+  .journal-v4-title-input{font-size:16px;padding:4px 2px 6px}
+  .journal-v4-status{font-size:6px;padding:4px 6px}
+  .journal-v4-moods{gap:5px;padding-top:5px;overflow-x:auto;scrollbar-width:none}
+  .journal-v4-moods::-webkit-scrollbar{display:none}
+  .journal-v4-mood{padding:6px 9px;font-size:8px;white-space:nowrap}
+  .journal-v4-page{width:100%;height:auto;min-height:0;padding:16px 15px;border-radius:15px}
+  .journal-v4-page h2{font-size:23px;margin:18px 0 10px}.journal-v4-page p{font-size:14px;line-height:1.72}
+  .journal-v4-composer{width:100%;height:145px;padding:7px;border-radius:13px;position:relative;overflow:visible}
+  .journal-v4-composer textarea{height:80px;min-height:80px;font-size:13px;line-height:1.45;padding:8px 9px}
+  .journal-v4-compose-bottom{min-height:31px;gap:6px}
+  .journal-v4-compose-bottom>span{font-size:7px}
+  .jv4-icon{width:30px;height:30px}
+  .journal-v4-save{font-size:9px;padding:8px 12px;white-space:nowrap}
+  .journal-v4-emoji{bottom:35px}
+
+  /* Cards inside My Edits: real one-column phone studio, never a desktop split */
+  .edits-v5{height:100dvh;display:grid;grid-template-columns:1fr!important;grid-template-rows:52px 34px minmax(0,1fr)!important;overflow:hidden}
+  .edits-v5-top{grid-template-columns:auto 1fr auto;padding:0 8px}
+  .edits-v5-stuff,.edits-v5-menu{padding:8px 9px;font-size:9px;box-shadow:2px 2px 0 #102017}
+  .edits-v5-head h1{font-size:18px}.edits-v5-head span{font-size:6px}
+  .edits-v5-switch{grid-column:1;grid-row:2;font-size:9px}
+  .edits-v5-side{position:fixed;z-index:90;left:0;top:86px;bottom:0;width:min(290px,82vw);transform:translateX(-105%);box-shadow:14px 0 36px rgba(0,0,0,.16)}
+  body.edits-v5-drawer-open .edits-v5-side{transform:translateX(0)}
+  .edits-v5-main{grid-column:1!important;grid-row:3!important;padding:6px;min-height:0}
+  .edits-v5-card-work{height:100%;display:grid!important;grid-template-columns:1fr!important;grid-template-rows:minmax(0,1fr) 214px!important;gap:6px}
+  .edits-v5-preview-pane{min-height:0;grid-template-rows:26px minmax(0,1fr) 42px;padding:6px;border-radius:14px}
+  .edits-v5-card-preview{width:min(82%,290px);height:min(72%,330px);padding:20px;box-shadow:8px 8px 0 #102017}
+  .edits-v5-card-preview h2{font-size:26px;margin:14px 0 8px}.edits-v5-card-preview p{font-size:13px}
+  .edits-v5-card-preview .pv4-brand,.edits-v5-card-star,.edits-v5-card-tinyqr{font-size:7px}
+  .edits-v5-samples{gap:4px}.edits-v5-samples .sample{padding:6px 4px;font-size:7px}
+  .edits-v5-card-form{height:auto;min-height:0;padding:7px;gap:5px;border-radius:14px;overflow:auto}
+  .edits-v5-card-form input[type=text],.edits-v5-card-form label input,.edits-v5-card-form>textarea{font-size:13px;padding:8px}
+  .edits-v5-card-form>textarea{height:52px;min-height:52px}
+  .edits-v5-choices{max-height:66px;overflow-y:auto}
+  .edits-v5-card-actions{grid-template-columns:1fr 1.1fr 1.1fr;gap:5px}
+  .edits-v5-card-actions button{padding:8px 5px;font-size:8px}
+  .edits-v5-photo-work{height:100%;grid-template-rows:minmax(0,1fr) 58px}
+
+  /* Saved values stay centered and finger-friendly */
+  .saves-v4{height:100dvh}
+  .saves-v4-list{width:min(560px,calc(100% - 30px))}
+}
