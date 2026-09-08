@@ -854,7 +854,7 @@ def my_stuff_copy_delete(item_id):
 
 
 @bp.post('/my-stuff/image')
-def my_stuff_image():
+def my_stuff_image_upload():
     user=_current_user_for_stuff()
     if not user or not session.get('stuff_unlocked'): abort(403)
     f=request.files.get('image'); operation=request.form.get('operation','clean')
