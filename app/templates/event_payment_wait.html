@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% block content %}
+<section class="form-page"><div class="form-card wide payment-wait-card">
+<div class="eyebrow">PAYMENT</div><h1>Complete your payment.</h1>
+<p class="lead">M-Pesa is asking <b>{{ intent.phone }}</b> to approve <b>{{ event.currency }} {{ '{:,.0f}'.format(intent.amount) }}</b>.</p>
+<div class="status-banner awaiting_payment" id="pay-state"><b>WAITING FOR M-PESA</b><span>Enter your M-Pesa PIN on your phone. This page will update automatically.</span></div>
+<div class="payment-summary"><div><span>EVENT</span><b>{{ event.title }}</b></div><div><span>TICKET</span><b>{{ ticket.ticket_code }}</b></div><div><span>REFERENCE</span><b>{{ intent.reference }}</b></div></div>
+<div class="button-row"><a class="button secondary" href="{{ url_for('public.event_ticket_access',access_token=access_token) }}">Open ticket page</a><button class="button primary" id="check-now" type="button">Check payment</button></div>
+<p class="micro">The ticket stays locked until the payment provider confirms the transaction.</p>
+<script>
+(function(){
+ const ref={{ intent.reference|tojson }}; const go={{ url_for('public.event_ticket_access',access_token=access_token)|tojson }}; const state=document.getElementById('pay-state'); const btn=document.getElementById('check-now');
+ async function check(){ try{ const r=await fetch('/payments/status/'+encodeURIComponent(ref),{cache:'no-store'}); const d=await r.json(); if(d.status==='paid'){ state.className='status-banner paid'; state.innerHTML='<b>PAYMENT CONFIRMED ✓</b><span>Your official ticket is ready.</span>'; setTimeout(()=>location.href=go,700); return; } if(['failed','cancelled','expired'].includes(d.status)){ state.className='status-banner cancelled'; state.innerHTML='<b>PAYMENT NOT COMPLETED</b><span>You can return to the ticket page and try again.</span>'; return;} }catch(e){} setTimeout(check,3000); }
+ btn.addEventListener('click',check); check();
+})();
+</script></div></section>{% endblock %}

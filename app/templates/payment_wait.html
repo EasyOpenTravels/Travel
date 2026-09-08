@@ -1,0 +1,14 @@
+{% extends 'base.html' %}{% block content %}
+<section class="form-page"><div class="form-card wide payment-wait-card">
+<div class="eyebrow">PAYMENT</div><h1>Complete your M-Pesa payment.</h1>
+<p class="lead">Approve the payment request sent to <b>{{ phone }}</b>.</p>
+<div class="status-banner awaiting_payment" id="pay-state"><b>WAITING FOR M-PESA</b><span>The booking will confirm automatically after payment is verified.</span></div>
+<div class="payment-summary"><div><span>BOOKING</span><b>{{ title }}</b></div><div><span>REFERENCE</span><b>{{ intent.reference }}</b></div><div><span>AMOUNT</span><b>KES {{ '{:,.0f}'.format(intent.amount) }}</b></div></div>
+<a class="button secondary full" href="{{ return_url }}">Open booking</a>
+<script>
+(function(){
+ const ref={{ intent.reference|tojson }}; const go={{ return_url|tojson }}; const state=document.getElementById('pay-state');
+ async function check(){ try{ const r=await fetch('/payments/status/'+encodeURIComponent(ref),{cache:'no-store'}); const d=await r.json(); if(d.status==='paid'){ state.className='status-banner paid'; state.innerHTML='<b>PAYMENT CONFIRMED ✓</b><span>Your booking is confirmed.</span>'; setTimeout(()=>location.href=go,700); return; } if(['failed','cancelled','expired'].includes(d.status)){ state.className='status-banner cancelled'; state.innerHTML='<b>PAYMENT NOT COMPLETED</b><span>Open the booking page to try again.</span>'; return;} }catch(e){} setTimeout(check,3000); }
+ check();
+})();
+</script></div></section>{% endblock %}

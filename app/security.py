@@ -1,7 +1,12 @@
-import hashlib, hmac, secrets
+import hashlib, hmac, secrets, base64
 from datetime import datetime, timezone
 from flask import current_app
 from werkzeug.security import generate_password_hash, check_password_hash
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+except Exception:
+    Fernet = None
+    InvalidToken = Exception
 
 def now():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -23,3 +28,22 @@ def ticket_signature(code):
 def verify_ticket(code, sig):
     expected = ticket_signature(code)
     return bool(sig) and hmac.compare_digest(expected, sig)
+
+
+def _secret_cipher():
+    if Fernet is None:
+        raise RuntimeError('Secure secret storage requires cryptography.')
+    raw = hashlib.sha256(str(current_app.config.get('SECRET_KEY','')).encode('utf-8')).digest()
+    return Fernet(base64.urlsafe_b64encode(raw))
+
+def encrypt_secret(value):
+    value = str(value or '')
+    return _secret_cipher().encrypt(value.encode('utf-8')).decode('ascii') if value else ''
+
+def decrypt_secret(value):
+    if not value:
+        return ''
+    try:
+        return _secret_cipher().decrypt(str(value).encode('ascii')).decode('utf-8')
+    except (InvalidToken, ValueError, TypeError):
+        return ''

@@ -139,6 +139,33 @@ CREATE TABLE IF NOT EXISTS group_members (
  created_at TEXT NOT NULL,
  FOREIGN KEY(retreat_id) REFERENCES group_retreats(id)
 );
+
+CREATE TABLE IF NOT EXISTS payment_intents (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ reference TEXT UNIQUE NOT NULL,
+ kind TEXT NOT NULL,
+ target_id INTEGER NOT NULL,
+ event_id INTEGER,
+ phone TEXT NOT NULL,
+ amount INTEGER NOT NULL,
+ currency TEXT NOT NULL DEFAULT 'KES',
+ provider TEXT NOT NULL DEFAULT 'mpesa',
+ status TEXT NOT NULL DEFAULT 'created',
+ merchant_request_id TEXT,
+ checkout_request_id TEXT,
+ provider_transaction_id TEXT UNIQUE,
+ result_code TEXT DEFAULT '',
+ result_desc TEXT DEFAULT '',
+ provider_response_json TEXT DEFAULT '',
+ metadata_json TEXT DEFAULT '',
+ fee_percent REAL NOT NULL DEFAULT 0,
+ platform_fee INTEGER NOT NULL DEFAULT 0,
+ net_amount INTEGER NOT NULL DEFAULT 0,
+ paid_at TEXT,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS event_tickets (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  event_id INTEGER NOT NULL,
@@ -258,6 +285,7 @@ def init_db(app):
             'contact_phone': '',
             'contact_email': '',
             'ticket_secret': None,
+            'ticketing_fee_percent': '5',
         }
         for key, value in defaults.items():
             exists = db.execute('SELECT 1 FROM settings WHERE key=?', (key,)).fetchone()
