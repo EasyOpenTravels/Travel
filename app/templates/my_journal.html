@@ -3,11 +3,9 @@
   <header class="journal-v4-top">
     <a class="journal-v4-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
     <div class="journal-v4-title"><span>YOUR PRIVATE SPACE</span><h1>My Journal</h1></div>
-    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">Menu</button>
+    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button>
   </header>
   <aside class="journal-v4-drawer">
-    <a class="journal-v4-drawer-my-stuff" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
-    <button class="journal-v4-drawer-menu" type="button" onclick="document.querySelector('.journal-v4-story-list')?.classList.toggle('show')">Menu</button>
     <div class="journal-v4-drawer-head"><strong>Your stories</strong><button type="button" onclick="document.body.classList.remove('journal-v4-open')">×</button></div>
     <a class="journal-v4-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New memory</a>
     <div class="journal-v4-story-list">
@@ -15,7 +13,7 @@
       <a class="journal-v4-story {{ 'active' if entry and entry.id==j.id else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id) }}"><i class="{{ j.cover_color }}"></i><div><b>{{ j.title }}</b><small>{{ j.mood|title }} · {{ j.updated_at }}</small></div></a>
       {% else %}<p class="journal-v4-empty">Your stories will appear here.</p>{% endfor %}
     </div>
-    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a>
+    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Journal settings</a>
     <div class="journal-v4-private">PRIVATE · ONLY YOU CAN VIEW THIS JOURNAL</div>
   </aside>
   <main class="journal-v4-main">
@@ -36,15 +34,12 @@
         <p id="previewBody">{{ entry.body if entry else 'Your words will appear here while you write.' }}</p>
       </article>
       <form class="journal-v4-composer" method="post" action="{{ url_for('public.my_stuff_journal_save') }}" id="journalV4Form">
-        <input type="hidden" name="entry_id" value="{{ entry.id if entry else '' }}"><input type="hidden" name="title" id="journalTitleField" value="{{ entry.title if entry else '' }}"><input type="hidden" name="segments_json" id="segmentsJsonV4"><input type="hidden" name="mood" id="journalMoodField" value="{{ entry.mood if entry else 'morning' }}">
-        <div class="journal-v4-compose-main">
-          <textarea id="journalInput" name="body" aria-label="Journal entry" placeholder="Write your memory here…" required>{{ entry.body if entry else '' }}</textarea>
-          <button class="journal-v4-save" type="submit">Save</button>
-        </div>
+        <input type="hidden" name="entry_id" value="{{ entry.id if entry else '' }}"><input type="hidden" name="segments_json" id="segmentsJsonV4"><input type="hidden" name="mood" id="journalMoodField" value="{{ entry.mood if entry else 'morning' }}">
+        <textarea id="journalInput" name="body" placeholder="Write a few words…" required>{{ entry.body if entry else '' }}</textarea>
         <div class="journal-v4-compose-bottom">
-          <div class="journal-v4-compose-tools"><button type="button" class="jv4-icon" aria-label="Emoji" onclick="document.body.classList.toggle('journal-v4-emoji-open')">😊</button><a class="jv4-icon" aria-label="Journal settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a></div>
+          <div class="journal-v4-compose-tools"><button type="button" class="jv4-icon" onclick="document.body.classList.toggle('journal-v4-emoji-open')">😊</button><a class="jv4-icon" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a></div>
           <span id="journalPageHint">Page 1 · keep writing</span>
-          <small>Saved to your journal only</small>
+          <button class="journal-v4-save" type="submit">Save memory</button>
           <div class="journal-v4-emoji"><button type="button" onclick="jv4Emoji('✨')">✨</button><button type="button" onclick="jv4Emoji('❤️')">❤️</button><button type="button" onclick="jv4Emoji('😂')">😂</button><button type="button" onclick="jv4Emoji('🌿')">🌿</button><button type="button" onclick="jv4Emoji('🌙')">🌙</button></div>
         </div>
       </form>
@@ -69,7 +64,7 @@ document.body.classList.add('personal-route-body','journal-v4-body');
  function paint(){segments[active]=input.value||'';const all=[segments.morning,segments.midday,segments.evening].filter(Boolean).join('\n\n');const pages=splitPages(all);titleOut.textContent=title.value||'A little memory';bodyOut.textContent=pages[pages.length-1]||'Your words will appear here while you write.';pageOut.textContent=pages.length+' page'+(pages.length===1?'':'s');hint.textContent='Page '+pages.length+' · keep writing';moodOut.textContent=active.toUpperCase();moodField.value=active;}
  moods.forEach(m=>m.addEventListener('click',()=>{segments[active]=input.value||'';active=m.dataset.mood;moods.forEach(x=>x.classList.toggle('active',x===m));input.value=segments[active]||'';paint();input.focus()}));
  input.addEventListener('input',paint);title.addEventListener('input',paint);
- document.getElementById('journalV4Form').addEventListener('submit',()=>{segments[active]=input.value||'';document.getElementById('journalTitleField').value=(title.value||'').trim();const parts=Object.entries(segments).filter(([,v])=>v.trim()).map(([time,body])=>({time,body:body.trim()}));hidden.value=JSON.stringify(parts);input.value=Object.values(segments).filter(Boolean).join('\n\n');});
+ document.getElementById('journalV4Form').addEventListener('submit',()=>{segments[active]=input.value||'';const parts=Object.entries(segments).filter(([,v])=>v.trim()).map(([time,body])=>({time,body:body.trim()}));hidden.value=JSON.stringify(parts);input.value=Object.values(segments).filter(Boolean).join('\n\n');});
  window.jv4Emoji=e=>{const a=input.selectionStart,b=input.selectionEnd;input.setRangeText(e,a,b,'end');paint();document.body.classList.remove('journal-v4-emoji-open');input.focus()}; paint();
 })();
 (function(){const r=document.getElementById('journalV4Reader');if(!r)return;const raw=r.dataset.body||'',out=document.getElementById('journalReadV4'),prev=document.getElementById('jrPrevV4'),next=document.getElementById('jrNextV4'),count=document.getElementById('jrCountV4');let pages=[],page=0;function split(){const words=raw.trim().split(/\s+/).filter(Boolean);let cur='';pages=[];for(const w of words){const test=(cur+' '+w).trim();if(test.length>980){pages.push(cur);cur=w}else cur=test}if(cur)pages.push(cur);if(!pages.length)pages=[''];}function paint(){out.textContent=pages[page];count.textContent=(page+1)+' / '+pages.length;prev.disabled=page===0;next.disabled=page===pages.length-1}function turn(d){const n=page+d;if(n<0||n>=pages.length)return;page=n;paint()}prev.onclick=()=>turn(-1);next.onclick=()=>turn(1);let sx=0;r.addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});r.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>55)turn(dx<0?1:-1)},{passive:true});window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')turn(-1);if(e.key==='ArrowRight')turn(1)});split();paint()})();

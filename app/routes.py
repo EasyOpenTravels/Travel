@@ -1,6 +1,7 @@
 from io import BytesIO
 import re, secrets, sqlite3, os, hmac, json
 from datetime import datetime, timezone
+from pathlib import Path
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
@@ -834,6 +835,8 @@ def my_stuff_journal():
 @bp.get('/my-stuff/journal/settings')
 def my_stuff_journal_settings():
     user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     return render_template('journal_settings.html', journal_secret_set=_journal_secret_set(user), simple_id_exists=_stuff_id_ready(user))
 
 @bp.post('/my-stuff/journal/settings')
@@ -985,23 +988,16 @@ def my_stuff_card_save():
     if shape_style not in {'sticky','rounded','ticket','cloud','note','arch'}: shape_style='sticky'
     if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
-    if not title or not body:
-        flash('Give the card a title and something to keep on it.','error')
-        return redirect(url_for('public.my_stuff_cards'))
+    if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
+    after_save=request.form.get('after_save','').strip().lower()
     if card_id:
-        owned=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
-        if not owned: abort(404)
-        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id']))
-        saved_id=int(card_id); msg='Card updated.'
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
     else:
-        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now()))
-        saved_id=cur.lastrowid; msg='Card saved.'
-    db.commit()
-    if request.form.get('save_action','save')=='save_png':
-        style=design_style if design_style in {'sunny','pastel','marker','playful','night','minimal','editorial','poster'} else 'sunny'
-        return redirect(url_for('public.my_stuff_card_download',card_id=saved_id,style=style,brand=1))
-    flash(msg,'success')
-    return redirect(url_for('public.my_stuff_cards',saved=saved_id))
+        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now())); msg='Card saved.'; saved_id=int(cur.lastrowid)
+    db.commit(); flash(msg,'success')
+    if after_save == 'png':
+        return redirect(url_for('public.my_stuff_card_download', card_id=saved_id, style=design_style, seed=saved_id, brand=1))
+    return redirect(url_for('public.my_stuff_cards'))
 
 
 

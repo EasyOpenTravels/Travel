@@ -1,10 +1,7 @@
 {% extends 'base.html' %}{% block content %}
 <div class="edits-v5 {% if mode=='photo' %}photo-mode{% endif %}">
   <header class="edits-v5-top">
-    <div class="edits-v5-left-stack">
-      <a href="{{ url_for('public.my_stuff') }}" class="edits-v5-stuff">My Stuff</a>
-      <a href="{{ url_for('public.my_stuff_edits_studio',mode='cards') }}" class="edits-v5-cards-link">My Cards</a>
-    </div>
+    <a href="{{ url_for('public.my_stuff') }}" class="edits-v5-stuff">My Stuff</a>
     <div class="edits-v5-head"><span>03 · CREATIVE SPACE</span><h1>My Edits</h1></div>
     <button class="edits-v5-menu" type="button" onclick="document.body.classList.toggle('edits-v5-drawer-open')">Projects</button>
   </header>
@@ -35,7 +32,7 @@
           <div class="edits-v5-samples"><button type="button" class="sample yellow" onclick="sampleCardV5('YOU GOT THIS.','One small step today is still a step.','yellow','bold','sticky','sunny')">YOU GOT THIS ✦</button><button type="button" class="sample blue" onclick="sampleCardV5('DO IT.','Start before you feel ready.','blue','bold','rounded','playful')">DO IT.</button><button type="button" class="sample pink" onclick="sampleCardV5('BE KIND TO YOU.','Rest is part of the plan.','pink','soft','cloud','pastel')">BE KIND</button><button type="button" class="sample aqua" onclick="sampleCardV5('TODAY MATTERS.','Make a little room for joy.','aqua','hand','note','marker')">TODAY ♥</button></div>
         </div>
         <form class="edits-v5-card-form" method="post" action="{{ url_for('public.my_stuff_card_save') }}" id="cardV5Form">
-          <input type="hidden" name="card_id" id="cardV5Id"><label>Words<input name="title" id="cardV5Title" maxlength="100" placeholder="YOU GOT THIS." required></label><textarea name="body" id="cardV5Body" maxlength="420" placeholder="Type your message here…" required></textarea>
+          <input type="hidden" name="card_id" id="cardV5Id"><input type="hidden" name="after_save" id="cardV5AfterSave" value=""><label>Words<input name="title" id="cardV5Title" maxlength="100" placeholder="YOU GOT THIS." required></label><textarea name="body" id="cardV5Body" maxlength="420" placeholder="Type your message here…" required></textarea>
           <div class="edits-v5-choices"><div><span>Colour</span><div class="swatches">{% for c in ['yellow','blue','pink','aqua','lime','orange','teal','white'] %}<label><input type="radio" name="color" value="{{ c }}" {% if loop.first %}checked{% endif %}><i class="{{ c }}"></i></label>{% endfor %}</div></div>
           <div><span>Letter</span><div class="chips">{% for v,n in [('bold','Bold'),('soft','Soft'),('hand','Hand'),('mono','Clean')] %}<label><input type="radio" name="font_style" value="{{ v }}" {% if loop.first %}checked{% endif %}><b>{{ n }}</b></label>{% endfor %}</div></div>
           <div><span>Shape</span><div class="chips">{% for v,n in [('sticky','Sticky'),('rounded','Round'),('cloud','Cloud'),('ticket','Ticket'),('note','Paper')] %}<label><input type="radio" name="shape_style" value="{{ v }}" {% if loop.first %}checked{% endif %}><b>{{ n }}</b></label>{% endfor %}</div></div>
@@ -64,7 +61,7 @@ document.body.classList.add('personal-route-body','edits-v5-body');
  window.sampleCardV5=(title,body,color,font,shape,style)=>{t.value=title;b.value=body;['color','font_style','shape_style','design_style'].forEach((n,v)=>{});document.querySelectorAll('input[name=color]').forEach(x=>x.checked=x.value===color);document.querySelectorAll('input[name=font_style]').forEach(x=>x.checked=x.value===font);document.querySelectorAll('input[name=shape_style]').forEach(x=>x.checked=x.value===shape);document.querySelectorAll('input[name=design_style]').forEach(x=>x.checked=x.value===style);paint()};
  window.loadSavedCardV5=(id,title,body,color,font,shape,style,qr,sig)=>{document.querySelector('.edits-v5-main')?.scrollTo?.(0,0);t.value=title;b.value=body;document.getElementById('cardV5Id').value=id;sampleCardV5(title,body,color,font,shape,style);document.querySelector('input[name=qr_enabled]').checked=!!qr;document.querySelector('input[name=signature_enabled]').checked=!!sig;document.body.classList.remove('edits-v5-drawer-open');paint()};
  window.surpriseCardV5=()=>{const p=(n)=>{const xs=[...document.querySelectorAll('input[name='+n+']')];xs[Math.floor(Math.random()*xs.length)].checked=true};p('color');p('font_style');p('shape_style');p('design_style');paint()};
- window.savePngV5=()=>{const id=document.getElementById('cardV5Id').value;if(!id){form.requestSubmit();return}location.href=`{{ url_for('public.my_stuff_card_download',card_id=0) }}`.replace('/0/download','/'+id+'/download')};
+ window.savePngV5=()=>{document.getElementById('cardV5AfterSave').value='png';form.requestSubmit();};
  [t,b].forEach(x=>x.addEventListener('input',paint));document.querySelectorAll('.edits-v5-card-form input').forEach(x=>x.addEventListener('change',paint));paint();
 })();
 (function(){const main=document.getElementById('editV5MainFile'),hidden=document.getElementById('editV5HiddenFile'),side=document.getElementById('editV5SidebarFile'),name=document.getElementById('editV5FileName');function bind(src){src?.addEventListener('change',()=>{if(!src.files[0])return;const dt=new DataTransfer();dt.items.add(src.files[0]);hidden.files=dt.files;name.textContent=src.files[0].name})}bind(main);bind(side)})();
