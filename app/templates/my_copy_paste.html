@@ -1,37 +1,12 @@
 {% extends 'base.html' %}{% block content %}
-<div class="saves-v3">
-  <header class="saves-v3-top">
-    <a class="saves-v3-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
-    <div class="saves-v3-title"><span>02 · SAVES</span><h1>Saves</h1></div>
-    <button class="saves-v3-search-btn" type="button" onclick="document.getElementById('saveSearch').focus()">⌕</button>
-  </header>
-  <section class="saves-v3-search"><input id="saveSearch" type="search" placeholder="Search your saved numbers or codes…" autocomplete="off"></section>
-  <main class="saves-v3-list" id="savesList">
-    {% for item in copies %}
-    <article class="save-v3-row" data-search="{{ (item.label ~ ' ' ~ item.value)|lower }}">
-      <button class="save-v3-name" type="button" onclick="copyValue(this.closest('.save-v3-row').querySelector('.save-v3-value').textContent,this.closest('.save-v3-row').querySelector('.copy-state'))">{{ item.label }}</button>
-      <button class="save-v3-value" type="button" onclick="copyValue(this.textContent,this.closest('.save-v3-row').querySelector('.copy-state'))">{{ item.value }}</button>
-      <small class="copy-state">tap number to copy</small>
-      <div class="save-v3-actions"><a href="{{ url_for('public.my_stuff_copy_paste',edit=item.id) }}#save">Edit</a><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button>Delete</button></form></div>
-    </article>
-    {% else %}<div class="saves-v3-empty"><b>Nothing saved yet.</b><span>Your little list of tills, paybills, numbers and codes will live here.</span></div>{% endfor %}
+<div class="saves-v4">
+  <header class="saves-v4-top"><a href="{{ url_for('public.my_stuff') }}" class="saves-v4-back">My Stuff</a><div><span>KEEP THE THINGS YOU USE</span><h1>Saves</h1></div><button type="button" class="saves-v4-search-button" onclick="document.getElementById('saveV4Search').focus()">⌕</button></header>
+  <div class="saves-v4-search"><input id="saveV4Search" type="search" placeholder="Search a name or number…" autocomplete="off"></div>
+  <main class="saves-v4-list" id="savesV4List">
+    {% for item in copies %}<article class="saves-v4-row" data-search="{{ (item.label ~ ' ' ~ item.value)|lower }}"><button class="saves-v4-name" type="button" onclick="copySaveV4(this.closest('.saves-v4-row').querySelector('.saves-v4-value').textContent,this.closest('.saves-v4-row').querySelector('.saves-v4-copy-state'))">{{ item.label }}</button><button class="saves-v4-value" type="button" onclick="copySaveV4(this.textContent,this.closest('.saves-v4-row').querySelector('.saves-v4-copy-state'))">{{ item.value }}</button><div class="saves-v4-actions"><a href="{{ url_for('public.my_stuff_copy_paste',edit=item.id) }}#save">Edit</a><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button>×</button></form></div><small class="saves-v4-copy-state"></small></article>{% else %}<div class="saves-v4-empty"><b>Your useful numbers live here.</b><span>Tap + to save a Till, Paybill, phone number, code or token.</span></div>{% endfor %}
   </main>
-  <div class="saves-v3-sheet" id="saveSheet">
-    <div class="saves-v3-sheet-label">NEW SAVE</div>
-    <form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="saveFormV4">
-      <input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}">
-      <label>Name<input name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My Till" required></label>
-      <label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="0712… / 123456" required></label>
-      <button class="saves-v3-save" type="submit">{{ 'Save changes' if edit_item else 'Save' }}</button>
-    </form>
-  </div>
-  <button class="saves-v3-plus" type="button" aria-label="Add save" onclick="openSaveSheet()">＋</button>
+  <button class="saves-v4-plus" type="button" onclick="document.getElementById('saveV4Sheet').classList.add('open');document.getElementById('saveV4Label').focus()">＋</button>
+  <section id="saveV4Sheet" class="saves-v4-sheet"><div><span>NEW SAVE</span><button type="button" onclick="document.getElementById('saveV4Sheet').classList.remove('open')">×</button></div><form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="saveV4Form"><input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}"><label>Name<input id="saveV4Label" name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My Till" required></label><label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="123456…" required></label><button class="saves-v4-save" type="submit">Save</button></form></section>
 </div>
 {% endblock %}{% block scripts %}<script>
-document.body.classList.add('personal-route-body','saves-v3-body');
-const q=document.getElementById('saveSearch');q?.addEventListener('input',()=>{const s=q.value.toLowerCase().trim();document.querySelectorAll('.save-v3-row').forEach(r=>r.hidden=!!s&&!r.dataset.search.includes(s));});
-async function copyValue(value,state){try{await navigator.clipboard.writeText(value)}catch{const t=document.createElement('textarea');t.value=value;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}if(state){state.textContent='Copied ✓';clearTimeout(state._timer);state._timer=setTimeout(()=>state.textContent='tap to copy',1100)}}
-function openSaveSheet(){const s=document.getElementById('saveSheet');s?.classList.add('open');s?.querySelector('input[name=label]')?.focus()}
-if(location.hash==='#save' || {{ 'true' if edit_item else 'false' }}) openSaveSheet();
-const saveForm=document.getElementById('saveFormV4');saveForm?.addEventListener('submit',()=>{const b=saveForm.querySelector('button[type=submit]');if(b){b.disabled=true;b.textContent='Saving…';}});
-</script>{% endblock %}
+document.body.classList.add('personal-route-body','saves-v4-body');const sq=document.getElementById('saveV4Search');sq?.addEventListener('input',()=>{const q=sq.value.toLowerCase().trim();document.querySelectorAll('.saves-v4-row').forEach(r=>r.hidden=!!q&&!r.dataset.search.includes(q))});async function copySaveV4(v,state){try{await navigator.clipboard.writeText(v)}catch{const t=document.createElement('textarea');t.value=v;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}if(state){state.textContent='Copied ✓';setTimeout(()=>state.textContent='',1200)}}if(location.hash==='#save' || {{ 'true' if edit_item else 'false' }})document.getElementById('saveV4Sheet').classList.add('open');document.getElementById('saveV4Form')?.addEventListener('submit',e=>{const b=e.currentTarget.querySelector('button[type=submit]');b.disabled=true});</script>{% endblock %}

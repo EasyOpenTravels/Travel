@@ -978,118 +978,131 @@ def my_stuff_card_save():
     if not user: abort(403)
     if not _cards_allowed(user):
         flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
-    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','yellow').strip().lower(); folder_id=request.form.get('folder_id') or None
-    card_style=request.form.get('card_style','sticky').strip().lower()
-    card_shape=request.form.get('card_shape','round').strip().lower()
-    card_text_style=request.form.get('card_text_style','bold').strip().lower()
-    card_sticker=request.form.get('card_sticker','star').strip().lower()
-    qr_enabled=1 if request.form.get('card_qr_enabled','1') in {'1','on','true','yes'} else 0
-    allowed_colors=set(_stuff_colors())
-    allowed_styles={'sticky','paper','tape','poster','window'}
-    allowed_shapes={'round','ticket','cloud','squared'}
-    allowed_text={'bold','hand','clean','serif'}
-    allowed_stickers={'star','heart','smile','spark','check','none'}
-    if color not in allowed_colors: color='yellow'
-    if card_style not in allowed_styles: card_style='sticky'
-    if card_shape not in allowed_shapes: card_shape='round'
-    if card_text_style not in allowed_text: card_text_style='bold'
-    if card_sticker not in allowed_stickers: card_sticker='star'
+    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
+    font_style=request.form.get('font_style','bold').strip().lower(); shape_style=request.form.get('shape_style','sticky').strip().lower(); design_style=request.form.get('design_style','sunny').strip().lower()
+    qr_enabled=1 if request.form.get('qr_enabled') in {'1','on','yes','true'} else 0
+    signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
+    if color not in _stuff_colors(): color='lime'
+    if font_style not in {'bold','soft','mono','hand'}: font_style='bold'
+    if shape_style not in {'sticky','rounded','ticket','cloud','note','arch'}: shape_style='sticky'
+    if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
     if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
     if card_id:
-        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,card_style=?,card_shape=?,card_text_style=?,card_sticker=?,card_qr_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,qr_enabled,now(),card_id,user['id'])); msg='Card updated.'
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); msg='Card updated.'
     else:
-        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,card_qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,qr_enabled,now(),now())); msg='Card saved.'
+        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now())); msg='Card saved.'
     db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_cards'))
 
 
 
 def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from io import BytesIO
-    import random
+    import random, math, textwrap
     palettes = {
-        'lime': ('#E9F5A5','#142229','#72A44A'), 'aqua': ('#BCEEE8','#142229','#3C9F96'),
-        'orange': ('#FFC68E','#142229','#D66F35'), 'pink': ('#FFC5D5','#142229','#D35B7D'),
-        'blue': ('#BCD7FF','#142229','#4F74BC'), 'yellow': ('#FFE56E','#142229','#C49B17'),
-        'teal': ('#78D8C9','#142229','#2E9489'), 'white': ('#FFFFFF','#142229','#D6D9D2')}
-    bg,ink,accent=palettes.get(card['color'],palettes['yellow'])
-    style=getattr(card,'_export_style',None) or card.get('card_style','sticky') or 'sticky'
-    shape=getattr(card,'_export_shape',None) or card.get('card_shape','round') or 'round'
-    text_style=getattr(card,'_export_text_style',None) or card.get('card_text_style','bold') or 'bold'
-    sticker=getattr(card,'_export_sticker',None) or card.get('card_sticker','star') or 'star'
-    W,H=1800,1200
-    img=Image.new('RGB',(W,H),'#F3E8D7'); d=ImageDraw.Draw(img)
-    def rgb(x):
-        x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
-    bgc,inkc,accc=rgb(bg),rgb(ink),rgb(accent)
+        'lime': ('#f1f8a8','#15201b','#8db84d'), 'aqua': ('#bdeee7','#112027','#45aaa0'),
+        'orange': ('#ffd09b','#261710','#d27b39'), 'pink': ('#ffc4d8','#28121c','#d65c86'),
+        'blue': ('#bfd8ff','#112031','#5c7fc0'), 'yellow': ('#ffe779','#221d0d','#c4961f'),
+        'teal': ('#7cdecf','#10211f','#329b8f'), 'white': ('#fffdf8','#172028','#9fa8aa'),
+    }
+    bg, ink, accent = palettes.get(card['color'], palettes['lime'])
+    font_style=getattr(card,'_export_font','bold') or 'bold'
+    shape_style=getattr(card,'_export_shape','sticky') or 'sticky'
+    design_style=getattr(card,'_export_design','sunny') or 'sunny'
+    W,H=1600,1000
+    img=Image.new('RGB',(W,H),'#e9eef2'); d=ImageDraw.Draw(img)
+    def rgb(x): x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
+    bgc, inkc, ac=rgb(bg), rgb(ink), rgb(accent)
     rng=random.Random(getattr(card,'_export_seed',0) or card['id']*7919)
-    for _ in range(30):
-        x=rng.randrange(W); y=rng.randrange(H); r=rng.randrange(2,7); d.ellipse((x-r,y-r,x+r,y+r),fill=(235,222,205))
-    bold=['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
-    reg=['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
-    serif=['/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf','/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf']
-    def load(paths,size):
-        for f in paths:
-            if Path(f).exists(): return ImageFont.truetype(f,size)
-        return ImageFont.load_default()
-    if text_style=='serif': tf=load(serif,88); bf=load(serif,42)
-    elif text_style=='clean': tf=load(reg,82); bf=load(reg,40)
-    else: tf=load(bold,88); bf=load(reg,42)
-    small=load(bold,28); tiny=load(reg,22)
-    box=(165,135,W-165,H-150)
-    # Shadow + card body in a real sticky-note language
-    shadow=(box[0]+22,box[1]+28,box[2]+22,box[3]+28)
-    d.rounded_rectangle(shadow,radius=42,fill=(50,54,50))
-    if style=='paper':
+    # wall / paper feel
+    d.rectangle((0,0,W,H),fill=(240,242,238))
+    if design_style=='night':
+        d.rectangle((0,0,W,H),fill=(20,30,38)); bg,ink,accent='#17242c','#ffffff','#79e1d2'; bgc,inkc,ac=rgb(bg),rgb(ink),rgb(accent)
+    elif design_style=='pastel':
+        d.ellipse((-200,-160,520,460),fill=tuple(min(255,c+12) for c in bgc))
+        d.ellipse((1180,620,1860,1230),fill=tuple(min(255,c+18) for c in bgc))
+    # card geometry
+    box=(130,100,W-130,H-100)
+    shadow=(box[0]+18,box[1]+22,box[2]+18,box[3]+22)
+    d.rounded_rectangle(shadow,radius=55,fill=(0,0,0,24) if False else (42,51,55))
+    if shape_style=='sticky':
+        d.rounded_rectangle(box,radius=28,fill=bgc,outline=inkc,width=6)
+        # curled corner
+        d.polygon([(W-270,100),(W-130,240),(W-270,240)],fill=tuple(max(0,c-10) for c in bgc))
+        d.line((W-270,100,W-270,240,W-130,240),fill=inkc,width=4)
+    elif shape_style=='rounded':
+        d.rounded_rectangle(box,radius=90,fill=bgc,outline=inkc,width=6)
+    elif shape_style=='ticket':
+        d.rounded_rectangle(box,radius=24,fill=bgc,outline=inkc,width=6)
+        for y in range(160,900,75):
+            d.ellipse((125,y-13,151,y+13),fill=(240,242,238)); d.ellipse((1449,y-13,1475,y+13),fill=(240,242,238))
+    elif shape_style=='cloud':
+        # layered bubbles create a friendly wall-sticker silhouette
+        pts=[(165,250),(235,150),(360,135),(455,195),(570,135),(720,155),(790,110),(980,145),(1075,190),(1225,125),(1385,195),(1450,315),(1410,760),(1280,860),(1120,900),(980,850),(810,915),(650,870),(505,910),(365,850),(240,865),(145,745)]
+        d.polygon(pts,fill=bgc)
+        d.line(pts+[pts[0]],fill=inkc,width=6,joint='curve')
+    elif shape_style=='note':
         d.rectangle(box,fill=bgc,outline=inkc,width=6)
-        for yy in range(box[1]+165,box[3]-80,84): d.line((box[0]+45,yy,box[2]-45,yy),fill=(210,210,192),width=2)
-    elif style=='poster':
-        d.rectangle((box[0]+14,box[1]+14,box[2]+14,box[3]+14),fill=(35,40,44))
-        d.rounded_rectangle(box,radius=18,fill=bgc,outline=inkc,width=7); d.rectangle((box[0]+34,box[1]+34,box[2]-34,box[3]-34),outline=accc,width=5)
-    elif style=='tape':
-        d.rounded_rectangle(box,radius=36,fill=bgc,outline=inkc,width=7)
-        tape=Image.new('RGBA',(300,105),(0,0,0,0)); td=ImageDraw.Draw(tape); td.rectangle((8,14,292,90),fill=(255,255,255,120)); tape=tape.rotate(-7,expand=True); img.paste(tape,(box[0]+140,box[1]-45),tape); d=ImageDraw.Draw(img)
-    elif style=='window':
-        d.rounded_rectangle(box,radius=30,fill=bgc,outline=inkc,width=6)
-        d.rounded_rectangle((box[0]+28,box[1]+28,box[2]-28,box[3]-28),outline=accc,width=4)
-    else:
-        d.rounded_rectangle(box,radius=42,fill=bgc,outline=inkc,width=7)
-    if shape=='ticket':
-        for cx in (box[0],box[2]):
-            cy=(box[1]+box[3])//2; d.ellipse((cx-30,cy-30,cx+30,cy+30),fill=rgb('#F3E8D7'))
-    elif shape=='cloud':
-        for x,y,r in ((box[0]+90,box[1]+90,55),(box[2]-100,box[1]+115,72),(box[2]-130,box[3]-95,50)):
-            d.ellipse((x-r,y-r,x+r,y+r),fill=bgc)
-    elif shape=='squared': d.rectangle(box,fill=bgc,outline=inkc,width=7)
-    icons={'star':'★','heart':'♥','smile':'☺','spark':'✦','check':'✓','none':''}
-    if sticker!='none':
-        sf=load(bold,50); sx,sy=box[2]-112,box[1]+78
-        d.ellipse((sx-36,sy-36,sx+36,sy+36),fill=accc,outline=inkc,width=4); d.text((sx-25,sy-29),icons.get(sticker,'★'),font=sf,fill=inkc)
-    d.text((box[0]+70,box[1]+58),'OPEN ROAD · LITTLE CARD',font=small,fill=inkc)
-    title=(card['title'] or 'A little reminder').strip(); body=(card['body'] or '').strip()
-    def wrap(text,font,maxw,limit):
-        out=[]; cur=''
-        for w in text.split():
-            test=(cur+' '+w).strip()
-            if d.textbbox((0,0),test,font=font)[2] <= maxw: cur=test
+        for y in range(210,860,78): d.line((190,y,1410,y),fill=tuple(min(255,c+20) for c in bgc),width=2)
+    elif shape_style=='arch':
+        d.rectangle((130,250,W-130,H-100),fill=bgc,outline=inkc,width=6)
+        d.ellipse((130,10,W-130,490),fill=bgc,outline=inkc,width=6)
+    # fonts
+    def font_paths(kind='bold'):
+        if kind=='mono': return ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf']
+        if kind=='soft': return ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+        if kind=='hand': return ['/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf']
+        return ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
+    def load_card_font(ink_style='bold',size=40):
+        for fp in font_paths(ink_style):
+            if Path(fp).exists(): return ImageFont.truetype(fp,size=size)
+        return ImageFont.load_default()
+    # visual sticker decorations
+    deco=[('★',165,155,38),('✦',1375,180,34),('•',1370,770,58),('♥',190,760,32)]
+    if design_style=='minimal': deco=[]
+    if design_style=='marker': deco += [('—',1070,160,48),('—',1120,160,48)]
+    if design_style=='playful': deco += [('✳',1250,820,42),('☺',300,190,34)]
+    for ch,x,y,sz in deco:
+        d.text((x,y),ch,font=load_card_font(ink_style='bold',size=sz),fill=ac)
+    f_label=load_card_font('bold',30); f_title=load_card_font(font_style,95); f_body=load_card_font('soft' if font_style!='mono' else 'mono',45); f_small=load_card_font('bold',24); f_brand=load_card_font('bold',24)
+    title=card['title'] or 'Untitled card'; body=card['body'] or ''
+    align='center' if design_style in {'pastel','playful'} else 'left'
+    tx=800 if align=='center' else 220
+    d.text((tx,190),'OPEN ROAD · LITTLE CARD',font=f_label,fill=inkc,anchor='ma' if align=='center' else 'la')
+    # title wrapping
+    def wrap(text,font,maxw):
+        words=text.split(); out=[]; cur=''
+        for w in words:
+            t=(cur+' '+w).strip()
+            if d.textbbox((0,0),t,font=font)[2] <= maxw: cur=t
             else:
                 if cur: out.append(cur)
                 cur=w
-                if len(out)>=limit: break
-        if cur and len(out)<limit: out.append(cur)
+        if cur: out.append(cur)
         return out
-    ty=box[1]+205
-    for line in wrap(title,tf,box[2]-box[0]-150,3): d.text((box[0]+70,ty),line,font=tf,fill=inkc); ty+=96
-    by=ty+32
-    for line in wrap(body,bf,box[2]-box[0]-190,7): d.text((box[0]+70,by),line,font=bf,fill=inkc); by+=61
-    fy=box[3]-110; d.line((box[0]+70,fy,box[2]-70,fy),fill=accc,width=6); d.text((box[0]+70,fy+22),'KEEP IT. STICK IT. SHARE IT.',font=tiny,fill=inkc)
-    if include_branding and getattr(card,'_export_qr_enabled',1):
+    tlines=wrap(title,f_title,1120)[:3]
+    y=300
+    for line in tlines:
+        d.text((tx,y),line,font=f_title,fill=inkc,anchor='ma' if align=='center' else 'la'); y+=100
+    blines=wrap(body,f_body,1100)[:7]
+    y=max(y+20,520)
+    for line in blines:
+        d.text((tx,y),line,font=f_body,fill=inkc,anchor='ma' if align=='center' else 'la'); y+=60
+    d.text((tx,H-175),'MADE TO KEEP · PRINT · POST · SHARE',font=f_small,fill=inkc,anchor='ma' if align=='center' else 'la')
+    qr_on=bool(getattr(card,'_export_qr',True)) and include_branding
+    sig_on=bool(getattr(card,'_export_signature',True)) and include_branding
+    if sig_on:
+        d.rounded_rectangle((W-565,H-235,W-285,H-165),radius=24,fill=inkc)
+        d.text((W-425,H-200),brand_name[:25],font=f_brand,fill=bgc,anchor='mm')
+    if qr_on:
         try:
             from .qr import make_qr_bytes
-            q=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB'); q.thumbnail((92,92),Image.Resampling.LANCZOS)
-            qx,qy=box[2]-175,fy-4; d.rounded_rectangle((qx-8,qy-8,qx+q.width+8,qy+q.height+8),radius=9,fill='white'); img.paste(q,(qx,qy))
-            d.text((box[2]-255,fy+22),brand_name[:22],font=load(bold,20),fill=inkc)
+            qr=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB')
+            qr=qr.resize((92,92),Image.Resampling.LANCZOS)
+            qx,qy=W-225,H-245
+            d.rounded_rectangle((qx-9,qy-9,qx+101,qy+101),radius=12,fill=(255,255,255),outline=inkc,width=3)
+            img.paste(qr,(qx,qy))
         except Exception: pass
     return img
 
@@ -1109,14 +1122,12 @@ def my_stuff_card_download(card_id):
     class CardProxy:
         def __init__(self,r,style,seed):
             self._r=r; self._export_style=style; self._export_seed=seed
-            self._export_shape=r['card_shape'] if 'card_shape' in r.keys() else 'round'
-            self._export_text_style=r['card_text_style'] if 'card_text_style' in r.keys() else 'bold'
-            self._export_sticker=r['card_sticker'] if 'card_sticker' in r.keys() else 'star'
-            self._export_qr_enabled=r['card_qr_enabled'] if 'card_qr_enabled' in r.keys() else 1
+            self._export_font=r['font_style'] if 'font_style' in r.keys() else 'bold'
+            self._export_shape=r['shape_style'] if 'shape_style' in r.keys() else 'sticky'
+            self._export_design=r['design_style'] if 'design_style' in r.keys() else 'sunny'
+            self._export_qr=bool(r['qr_enabled']) if 'qr_enabled' in r.keys() else True
+            self._export_signature=bool(r['signature_enabled']) if 'signature_enabled' in r.keys() else True
         def __getitem__(self,k): return self._r[k]
-        def get(self,k,default=None):
-            try: return self._r[k]
-            except Exception: return default
     card=CardProxy(row,style,seed)
     image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
     out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
@@ -1167,11 +1178,19 @@ def my_stuff_copy_delete(item_id):
 @bp.get('/my-stuff/edits-studio')
 def my_stuff_edits_studio():
     user=_current_user_for_stuff()
-    user=_stuff_use_and_context(user,'stuff_edits_uses')
-    images=get_db().execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
+    mode=request.args.get('mode','cards').strip().lower()
+    if mode not in {'cards','photo'}: mode='cards'
+    if mode=='cards':
+        user=_stuff_use_and_context(user,'stuff_card_uses')
+    else:
+        user=_stuff_use_and_context(user,'stuff_edits_uses')
+    db=get_db()
+    images=db.execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
     selected_id=request.args.get('image','').strip()
-    selected_image=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(int(selected_id),user['id'])).fetchone() if selected_id.isdigit() else None
-    return render_template('my_edits_studio.html',user=user,images=images,selected_image=selected_image,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_edits_uses'] or 0))
+    selected_image=db.execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(int(selected_id),user['id'])).fetchone() if selected_id.isdigit() else None
+    card_locked=(mode=='cards' and not _cards_allowed(user))
+    return render_template('my_edits_studio.html',user=user,images=images,cards=cards,selected_image=selected_image,mode=mode,card_locked=card_locked,simple_id_exists=_stuff_id_ready(user),use_count=int((user['stuff_card_uses'] if mode=='cards' else user['stuff_edits_uses']) or 0))
 
 @bp.post('/my-stuff/image')
 def my_stuff_image_upload():

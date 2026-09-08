@@ -1,18 +1,68 @@
 {% extends 'base.html' %}{% block content %}
-<div class="edits-v3">
-  <header class="edits-v3-top"><a href="{{ url_for('public.my_stuff') }}" class="edits-v3-stuff">My Stuff</a><div class="edits-v3-head"><span>03 · CREATIVE SPACE</span><h1>My Edits</h1></div><button class="edits-v3-projects-btn" type="button" onclick="document.body.classList.toggle('edits-v3-drawer-open')">Projects</button></header>
-  <aside class="edits-v3-sidebar"><div class="edits-v3-side-title"><b>Projects</b><button type="button" onclick="document.body.classList.remove('edits-v3-drawer-open')">×</button></div><label class="edits-v3-upload-mini"><span>＋ New project</span><input id="editFileInput" type="file" accept="image/*"></label>{% for img in images %}<a class="edits-v3-project {{ 'active' if selected_image and selected_image.id==img.id else '' }}" href="{{ url_for('public.my_stuff_edits_studio',image=img.id) }}"><i>✦</i><div><strong>{{ img.original_name }}</strong><small>{{ img.operation|title }}</small></div></a>{% else %}<div class="edits-v3-side-empty">Finished images land here.</div>{% endfor %}<div class="edits-v3-tip">Tip: press and hold a project to delete it.</div></aside>
-  <main class="edits-v3-main">
-    <section class="edits-v3-stage">
-      {% if selected_image %}<div class="edits-v3-stage-top"><span>{{ selected_image.operation|title }} · READY</span><a href="{{ url_for('public.my_stuff_image',image_id=selected_image.id) }}">Download</a></div><div class="edits-v3-artboard"><img src="{{ url_for('public.media',filename=selected_image.filename) }}" alt="Edited project"></div>{% else %}<div class="edits-v3-sample-strip"><div class="sample-card sample-pink"><small>PLAY</small><b>make it bright</b><span>your idea, your look</span></div><div class="sample-card sample-aqua"><small>CREATE</small><b>turn a photo into something</b><span>clean • bold • yours</span></div><div class="sample-card sample-lime"><small>SHARE</small><b>ready for the world</b><span>export when it feels right</span></div></div><div class="edits-v3-empty-center"><div class="edits-v3-spark">✦</div><h2>Your next edit goes here.</h2><p>Choose a photo and give it a little personality.</p></div>{% endif %}
-    </section>
-    <form class="edits-v3-dock" method="post" action="{{ url_for('public.my_stuff_image_upload') }}" enctype="multipart/form-data">
-      <label class="edits-v3-photo"><input name="image" type="file" accept="image/*" required><span>＋ Photo</span><small id="editsV3FileName">Choose an image</small></label>
-      <div class="edits-v3-tools"><button name="operation" value="clean">Clean</button><button name="operation" value="grayscale">Mono</button><button name="operation" value="web">Web ready</button></div>
-      <div class="edits-v3-hint">Remove metadata · make a clean shareable file · keep a finished copy in Projects</div>
-    </form>
+<div class="edits-v5 {% if mode=='photo' %}photo-mode{% endif %}">
+  <header class="edits-v5-top">
+    <a href="{{ url_for('public.my_stuff') }}" class="edits-v5-stuff">My Stuff</a>
+    <div class="edits-v5-head"><span>03 · CREATIVE SPACE</span><h1>My Edits</h1></div>
+    <button class="edits-v5-menu" type="button" onclick="document.body.classList.toggle('edits-v5-drawer-open')">Projects</button>
+  </header>
+  <div class="edits-v5-switch"><a class="{% if mode=='cards' %}active{% endif %}" href="{{ url_for('public.my_stuff_edits_studio',mode='cards') }}">Cards</a><a class="{% if mode=='photo' %}active{% endif %}" href="{{ url_for('public.my_stuff_edits_studio',mode='photo') }}">Photo edits</a></div>
+  <aside class="edits-v5-side">
+    <div class="edits-v5-sidehead"><b>{% if mode=='cards' %}Your cards{% else %}Projects{% endif %}</b><button type="button" onclick="document.body.classList.remove('edits-v5-drawer-open')">×</button></div>
+    {% if mode=='cards' %}
+      <button class="edits-v5-side-new" type="button" onclick="newCardV5()">＋ New card</button>
+      <div class="edits-v5-template-title">Made here · no upload needed</div>
+      {% for c in cards %}<button class="edits-v5-project-card {{ c.color }}" type="button" onclick="loadSavedCardV5({{ c.id }},{{ c.title|tojson }},{{ c.body|tojson }},'{{ c.color }}','{{ c.font_style }}','{{ c.shape_style }}','{{ c.design_style }}',{{ c.qr_enabled }},{{ c.signature_enabled }})"><i></i><span>{{ c.title }}</span><small>saved card</small></button>{% else %}<div class="edits-v5-side-empty">Your saved cards will live here.</div>{% endfor %}
+    {% else %}
+      <label class="edits-v5-side-upload"><span>＋ New photo</span><input type="file" accept="image/*" id="editV5SidebarFile"></label>
+      {% for img in images %}<a class="edits-v5-project" href="{{ url_for('public.my_stuff_edits_studio',mode='photo',image=img.id) }}"><i>✦</i><div><strong>{{ img.original_name }}</strong><small>{{ img.operation|title }}</small></div></a>{% else %}<div class="edits-v5-side-empty">Finished images land here.</div>{% endfor %}
+    {% endif %}
+  </aside>
+
+  <main class="edits-v5-main">
+    {% if mode=='cards' %}
+      {% if card_locked %}
+      <section class="edits-v5-lock"><div>✦</div><span>A FEW FREE PLAYS DONE</span><h2>Your cards are worth keeping.</h2><p>Create your Open Road ID to keep making and saving cards. Journal, Saves and Photo Edits stay open.</p><button type="button" onclick="document.getElementById('editsCardId').showModal()">Create ID</button></section>
+      {% else %}
+      <section class="edits-v5-card-work">
+        <div class="edits-v5-preview-pane">
+          <div class="edits-v5-pane-head"><span>LIVE CARD</span><button type="button" onclick="surpriseCardV5()">Surprise me ✦</button></div>
+          <div id="cardV5Preview" class="edits-v5-card-preview yellow sticky sunny">
+            <small>OPEN ROAD · LITTLE NOTE</small><h2 id="cardV5TitleOut">YOU GOT THIS.</h2><p id="cardV5BodyOut">Write anything you want here — an encouragement, reminder, tiny to-do, quote or message.</p><b class="edits-v5-card-star">✦</b><span class="edits-v5-card-tinyqr">▦</span><em class="edits-v5-card-brand">OPEN ROAD</em>
+          </div>
+          <div class="edits-v5-samples"><button type="button" class="sample yellow" onclick="sampleCardV5('YOU GOT THIS.','One small step today is still a step.','yellow','bold','sticky','sunny')">YOU GOT THIS ✦</button><button type="button" class="sample blue" onclick="sampleCardV5('DO IT.','Start before you feel ready.','blue','bold','rounded','playful')">DO IT.</button><button type="button" class="sample pink" onclick="sampleCardV5('BE KIND TO YOU.','Rest is part of the plan.','pink','soft','cloud','pastel')">BE KIND</button><button type="button" class="sample aqua" onclick="sampleCardV5('TODAY MATTERS.','Make a little room for joy.','aqua','hand','note','marker')">TODAY ♥</button></div>
+        </div>
+        <form class="edits-v5-card-form" method="post" action="{{ url_for('public.my_stuff_card_save') }}" id="cardV5Form">
+          <input type="hidden" name="card_id" id="cardV5Id"><label>Words<input name="title" id="cardV5Title" maxlength="100" placeholder="YOU GOT THIS." required></label><textarea name="body" id="cardV5Body" maxlength="420" placeholder="Type your message here…" required></textarea>
+          <div class="edits-v5-choices"><div><span>Colour</span><div class="swatches">{% for c in ['yellow','blue','pink','aqua','lime','orange','teal','white'] %}<label><input type="radio" name="color" value="{{ c }}" {% if loop.first %}checked{% endif %}><i class="{{ c }}"></i></label>{% endfor %}</div></div>
+          <div><span>Letter</span><div class="chips">{% for v,n in [('bold','Bold'),('soft','Soft'),('hand','Hand'),('mono','Clean')] %}<label><input type="radio" name="font_style" value="{{ v }}" {% if loop.first %}checked{% endif %}><b>{{ n }}</b></label>{% endfor %}</div></div>
+          <div><span>Shape</span><div class="chips">{% for v,n in [('sticky','Sticky'),('rounded','Round'),('cloud','Cloud'),('ticket','Ticket'),('note','Paper')] %}<label><input type="radio" name="shape_style" value="{{ v }}" {% if loop.first %}checked{% endif %}><b>{{ n }}</b></label>{% endfor %}</div></div>
+          <div><span>Style</span><div class="chips">{% for v,n in [('sunny','Sunny'),('pastel','Pastel'),('marker','Marker'),('playful','Playful'),('night','Night')] %}<label><input type="radio" name="design_style" value="{{ v }}" {% if loop.first %}checked{% endif %}><b>{{ n }}</b></label>{% endfor %}</div></div></div>
+          <div class="edits-v5-branding"><label><input type="checkbox" name="qr_enabled" checked> tiny QR</label><label><input type="checkbox" name="signature_enabled" checked> Open Road mark</label><small>Generated here. No image upload required.</small></div>
+          <div class="edits-v5-card-actions"><button type="button" onclick="newCardV5()">Clear</button><button type="submit" class="save">Save card</button><button type="button" onclick="savePngV5()">Save + PNG</button></div>
+        </form>
+      </section>
+      {% endif %}
+    {% else %}
+      <section class="edits-v5-photo-work">
+        <div class="edits-v5-photo-stage">{% if selected_image %}<div class="edits-v5-photo-ready"><span>{{ selected_image.operation|title }} · READY</span><a href="{{ url_for('public.my_stuff_image',image_id=selected_image.id) }}">Download</a></div><img src="{{ url_for('public.media',filename=selected_image.filename) }}" alt="Edited photo">{% else %}<div class="edits-v5-photo-welcome"><div>✦</div><h2>Make a photo feel like yours.</h2><p>Clean metadata, make it mono or size it for the web.</p><label class="edits-v5-big-upload"><span>＋ Choose photo</span><input id="editV5MainFile" type="file" accept="image/*"></label></div>{% endif %}</div>
+        <form class="edits-v5-photo-tools" method="post" action="{{ url_for('public.my_stuff_image_upload') }}" enctype="multipart/form-data"><input id="editV5HiddenFile" name="image" type="file" accept="image/*" required><button name="operation" value="clean">Clean</button><button name="operation" value="grayscale">Mono</button><button name="operation" value="web">Web ready</button><small id="editV5FileName">Choose a photo</small></form>
+      </section>
+    {% endif %}
   </main>
 </div>
+{% if mode=='cards' and card_locked %}<dialog id="editsCardId"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="edits-studio"><input type="hidden" name="mode" value="cards"><h2>Open Road ID</h2><p>One ID across Open Road. It only protects the Card Studio gate.</p><input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" required><button>Create ID</button></form></dialog>{% endif %}
 {% endblock %}{% block scripts %}<script>
-document.body.classList.add('personal-route-body','edits-v3-body');const fi=document.querySelector('.edits-v3-photo input');fi?.addEventListener('change',()=>document.getElementById('editsV3FileName').textContent=fi.files[0]?.name||'Choose an image');document.querySelectorAll('.edits-v3-project').forEach(r=>{let t;r.addEventListener('touchstart',()=>t=setTimeout(()=>{if(confirm('Delete this project?')){const id=r.href.split('image=')[1];const f=document.createElement('form');f.method='post';f.action='{{ url_for('public.my_stuff_image_delete',image_id=0) }}'.replace('/0/delete','/'+id+'/delete');document.body.appendChild(f);f.submit()}},700),{passive:true});['touchend','touchmove'].forEach(e=>r.addEventListener(e,()=>clearTimeout(t),{passive:true}))});
+document.body.classList.add('personal-route-body','edits-v5-body');
+(function(){
+ const form=document.getElementById('cardV5Form'); if(!form)return;
+ const t=document.getElementById('cardV5Title'),b=document.getElementById('cardV5Body'),p=document.getElementById('cardV5Preview'),to=document.getElementById('cardV5TitleOut'),bo=document.getElementById('cardV5BodyOut');
+ function paint(){const color=document.querySelector('input[name=color]:checked')?.value||'yellow',font=document.querySelector('input[name=font_style]:checked')?.value||'bold',shape=document.querySelector('input[name=shape_style]:checked')?.value||'sticky',style=document.querySelector('input[name=design_style]:checked')?.value||'sunny';p.className='edits-v5-card-preview '+color+' '+font+' '+shape+' '+style;to.textContent=t.value||'YOU GOT THIS.';bo.textContent=b.value||'Write something lovely.'}
+ window.newCardV5=()=>{form.reset();document.getElementById('cardV5Id').value='';document.querySelector('input[name=qr_enabled]').checked=true;document.querySelector('input[name=signature_enabled]').checked=true;paint();t.focus()};
+ window.sampleCardV5=(title,body,color,font,shape,style)=>{t.value=title;b.value=body;['color','font_style','shape_style','design_style'].forEach((n,v)=>{});document.querySelectorAll('input[name=color]').forEach(x=>x.checked=x.value===color);document.querySelectorAll('input[name=font_style]').forEach(x=>x.checked=x.value===font);document.querySelectorAll('input[name=shape_style]').forEach(x=>x.checked=x.value===shape);document.querySelectorAll('input[name=design_style]').forEach(x=>x.checked=x.value===style);paint()};
+ window.loadSavedCardV5=(id,title,body,color,font,shape,style,qr,sig)=>{document.querySelector('.edits-v5-main')?.scrollTo?.(0,0);t.value=title;b.value=body;document.getElementById('cardV5Id').value=id;sampleCardV5(title,body,color,font,shape,style);document.querySelector('input[name=qr_enabled]').checked=!!qr;document.querySelector('input[name=signature_enabled]').checked=!!sig;document.body.classList.remove('edits-v5-drawer-open');paint()};
+ window.surpriseCardV5=()=>{const p=(n)=>{const xs=[...document.querySelectorAll('input[name='+n+']')];xs[Math.floor(Math.random()*xs.length)].checked=true};p('color');p('font_style');p('shape_style');p('design_style');paint()};
+ window.savePngV5=()=>{const id=document.getElementById('cardV5Id').value;if(!id){form.requestSubmit();return}location.href=`{{ url_for('public.my_stuff_card_download',card_id=0) }}`.replace('/0/download','/'+id+'/download')};
+ [t,b].forEach(x=>x.addEventListener('input',paint));document.querySelectorAll('.edits-v5-card-form input').forEach(x=>x.addEventListener('change',paint));paint();
+})();
+(function(){const main=document.getElementById('editV5MainFile'),hidden=document.getElementById('editV5HiddenFile'),side=document.getElementById('editV5SidebarFile'),name=document.getElementById('editV5FileName');function bind(src){src?.addEventListener('change',()=>{if(!src.files[0])return;const dt=new DataTransfer();dt.items.add(src.files[0]);hidden.files=dt.files;name.textContent=src.files[0].name})}bind(main);bind(side)})();
 </script>{% endblock %}

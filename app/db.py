@@ -185,6 +185,11 @@ CREATE TABLE IF NOT EXISTS stuff_cards (
  image_filename TEXT DEFAULT '',
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
+ font_style TEXT NOT NULL DEFAULT 'bold',
+ shape_style TEXT NOT NULL DEFAULT 'sticky',
+ design_style TEXT NOT NULL DEFAULT 'sunny',
+ qr_enabled INTEGER NOT NULL DEFAULT 1,
+ signature_enabled INTEGER NOT NULL DEFAULT 1,
  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
  FOREIGN KEY(folder_id) REFERENCES stuff_folders(id) ON DELETE SET NULL
 );
@@ -269,6 +274,13 @@ def init_db(app):
                 'followup_sent': 'ALTER TABLE bookings ADD COLUMN followup_sent INTEGER NOT NULL DEFAULT 0',
             },
             'trips': {'gallery': "ALTER TABLE trips ADD COLUMN gallery TEXT DEFAULT ''"},
+            'stuff_cards': {
+                'font_style': "ALTER TABLE stuff_cards ADD COLUMN font_style TEXT NOT NULL DEFAULT 'bold'",
+                'shape_style': "ALTER TABLE stuff_cards ADD COLUMN shape_style TEXT NOT NULL DEFAULT 'sticky'",
+                'design_style': "ALTER TABLE stuff_cards ADD COLUMN design_style TEXT NOT NULL DEFAULT 'sunny'",
+                'qr_enabled': "ALTER TABLE stuff_cards ADD COLUMN qr_enabled INTEGER NOT NULL DEFAULT 1",
+                'signature_enabled': "ALTER TABLE stuff_cards ADD COLUMN signature_enabled INTEGER NOT NULL DEFAULT 1",
+            },
             'event_ticket_events': {
                 'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',
                 'vip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vip_price INTEGER NOT NULL DEFAULT 0',
@@ -290,17 +302,6 @@ def init_db(app):
 
         if 'segments_json' not in _column_names(db, 'journal_entries'):
             db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
-
-        if 'card_style' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_style TEXT NOT NULL DEFAULT 'sticky'")
-        if 'card_shape' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_shape TEXT NOT NULL DEFAULT 'round'")
-        if 'card_text_style' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_text_style TEXT NOT NULL DEFAULT 'bold'")
-        if 'card_sticker' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_sticker TEXT NOT NULL DEFAULT 'star'")
-        if 'card_qr_enabled' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_qr_enabled INTEGER NOT NULL DEFAULT 1")
 
         import secrets
         # Backfill scanner/access identifiers on databases created by earlier builds.
