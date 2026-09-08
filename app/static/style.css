@@ -296,3 +296,33 @@ body.stuff-door-body main{height:100dvh;min-height:100dvh;margin:0;padding:0;ove
 @media(max-width:700px){
  .edits-v5{grid-template-columns:1fr;grid-template-rows:54px 36px minmax(0,1fr)}.edits-v5-top{grid-template-columns:auto 1fr auto;padding:0 8px}.edits-v5-stuff,.edits-v5-menu{padding:8px 9px;font-size:9px}.edits-v5-head span{font-size:6px}.edits-v5-head h1{font-size:18px}.edits-v5-side{position:fixed;z-index:80;left:0;top:90px;bottom:0;width:min(280px,84vw);transform:translateX(-105%);transition:transform .2s;box-shadow:16px 0 50px rgba(0,0,0,.18)}body.edits-v5-drawer-open .edits-v5-side{transform:translateX(0)}.edits-v5-main{padding:6px}.edits-v5-card-work{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.edits-v5-preview-pane{grid-template-rows:28px minmax(0,1fr) 48px;padding:6px}.edits-v5-card-preview{width:min(92%,360px);height:min(74%,370px);padding:25px}.edits-v5-card-preview h2{font-size:29px}.edits-v5-card-preview p{font-size:13px}.edits-v5-samples{gap:4px}.edits-v5-samples .sample{padding:7px 4px;font-size:7px}.edits-v5-card-form{height:235px;padding:8px;gap:6px}.edits-v5-card-form>textarea{height:62px}.edits-v5-choices{max-height:86px;overflow:auto}.swatches i{width:22px;height:22px}.chips b{font-size:7px;padding:4px 6px}.edits-v5-branding{padding:2px 0}.edits-v5-card-actions button{padding:8px 5px}.edits-v5-photo-work{grid-template-rows:minmax(0,1fr) 58px}.edits-v5-photo-tools{grid-template-columns:1fr 1fr 1fr;gap:5px;padding:7px}.edits-v5-photo-tools button{padding:8px 5px}.edits-v5-photo-tools small{grid-column:1/-1;text-align:center}.edits-v5-lock h2{font-size:22px}
 }
+
+/* v23 — restore natural phone scrolling for Journal and Saves.
+   These two personal tools are intentionally document-like: the phone itself
+   is allowed to scroll; inner content must not trap the user behind clipped panels. */
+.personal-route-body.journal-v4-body,
+.personal-route-body.saves-v4-body{overflow-y:auto;overflow-x:hidden}
+.personal-route-body.journal-v4-body main,
+.personal-route-body.saves-v4-body main{height:auto;min-height:100dvh;overflow:visible}
+.journal-v4{height:auto;min-height:100dvh;overflow:visible}
+.journal-v4-main{overflow:visible}
+.journal-v4-write{height:auto;min-height:calc(100dvh - 60px);grid-template-rows:auto minmax(48vh,auto) auto;overflow:visible}
+.journal-v4-page{min-height:48vh;max-height:none;overflow:visible}
+.journal-v4-composer{height:auto;min-height:166px;max-height:none;overflow:visible}
+.journal-v4-composer textarea{height:120px;min-height:120px;max-height:240px;overflow:auto}
+.journal-v4-reader{height:auto;min-height:calc(100dvh - 60px);overflow:visible}
+.journal-v4-book{min-height:58vh;overflow:visible}
+.journal-v4-book>div{height:auto;min-height:58vh;overflow:visible}
+.saves-v4{height:auto;min-height:100dvh;grid-template-rows:60px 48px auto;overflow:visible}
+.saves-v4-list{min-height:0;height:auto;max-height:none;overflow:visible}
+@media(max-width:700px){
+  .journal-v4-write{min-height:0;grid-template-rows:auto minmax(46vh,auto) auto;padding-bottom:24px}
+  .journal-v4-page{min-height:46vh}
+  .journal-v4-composer{min-height:176px}
+  .journal-v4-composer textarea{height:122px;min-height:122px}
+  .journal-v4-reader{min-height:0;padding-bottom:22px}
+  .journal-v4-book{min-height:58vh}
+  .journal-v4-book>div{min-height:58vh}
+  .saves-v4{min-height:0}
+  .saves-v4-list{padding-bottom:110px}
+}
