@@ -834,8 +834,6 @@ def my_stuff_journal():
 @bp.get('/my-stuff/journal/settings')
 def my_stuff_journal_settings():
     user=_current_user_for_stuff()
-    blocked=_journal_require_unlock(user)
-    if blocked: return blocked
     return render_template('journal_settings.html', journal_secret_set=_journal_secret_set(user), simple_id_exists=_stuff_id_ready(user))
 
 @bp.post('/my-stuff/journal/settings')
@@ -989,10 +987,10 @@ def my_stuff_card_save():
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
     if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
     if card_id:
-        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); msg='Card updated.'
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); saved_id=int(card_id); msg='Card updated.'
     else:
-        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now())); msg='Card saved.'
-    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_cards'))
+        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now())); saved_id=cur.lastrowid; msg='Card saved.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_cards',saved=saved_id))
 
 
 

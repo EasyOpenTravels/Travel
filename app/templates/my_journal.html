@@ -3,9 +3,11 @@
   <header class="journal-v4-top">
     <a class="journal-v4-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
     <div class="journal-v4-title"><span>YOUR PRIVATE SPACE</span><h1>My Journal</h1></div>
-    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button>
+    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">Menu</button>
   </header>
   <aside class="journal-v4-drawer">
+    <a class="journal-v4-drawer-my-stuff" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
+    <button class="journal-v4-drawer-menu" type="button" onclick="document.querySelector('.journal-v4-story-list')?.classList.toggle('show')">Menu</button>
     <div class="journal-v4-drawer-head"><strong>Your stories</strong><button type="button" onclick="document.body.classList.remove('journal-v4-open')">×</button></div>
     <a class="journal-v4-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New memory</a>
     <div class="journal-v4-story-list">
@@ -13,7 +15,7 @@
       <a class="journal-v4-story {{ 'active' if entry and entry.id==j.id else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id) }}"><i class="{{ j.cover_color }}"></i><div><b>{{ j.title }}</b><small>{{ j.mood|title }} · {{ j.updated_at }}</small></div></a>
       {% else %}<p class="journal-v4-empty">Your stories will appear here.</p>{% endfor %}
     </div>
-    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Journal settings</a>
+    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a>
     <div class="journal-v4-private">PRIVATE · ONLY YOU CAN VIEW THIS JOURNAL</div>
   </aside>
   <main class="journal-v4-main">

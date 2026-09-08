@@ -485,3 +485,30 @@ html:has(.edits-v5){overflow-y:auto!important;overflow-x:hidden!important}
 
 /* Don't let the browser create an accidental sideways page from long values. */
 .saves-v4,.saves-v4 *,.journal-v4,.journal-v4 *,.edits-v5,.edits-v5 *{min-width:0;}
+
+/* FINAL CLEANUP: Journal sidebar order + usable card export */
+.journal-v4-drawer-my-stuff,.journal-v4-drawer-menu{display:block;text-decoration:none;width:100%;border:0;text-align:left;border-radius:11px;padding:10px 11px;font-weight:900;font-size:10px;margin-bottom:6px}
+.journal-v4-drawer-my-stuff{background:#77b8ff;color:#10202a}
+.journal-v4-drawer-menu{background:#1b3039;color:#fff;cursor:pointer}
+.cards-v4-download{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;border:0;background:#83e1d3;color:#152027;border-radius:10px;padding:8px 9px;font-size:9px;font-weight:900}
+@media(max-width:900px){
+  .journal-v4-drawer{padding:10px}
+  .journal-v4-story-list{display:block}
+  .journal-v4-drawer-menu{display:block}
+  .journal-v4-main{overflow:auto!important}
+  .cards-v4{height:auto!important;min-height:100dvh!important;overflow:visible!important}
+  .cards-v4-main{overflow:visible!important}
+  .cards-v4-work{min-height:calc(100dvh - 64px)}
+  .cards-v4-form{max-height:none!important;overflow:visible!important}
+  .cards-v4-actions{position:static!important;flex-wrap:wrap!important}
+  .cards-v4-download{min-height:34px}
+}
+
+/* Journal settings: a complete, separate settings page rather than an in-place mode switch. */
+.journal-settings-screen{min-height:100dvh;background:#0d171d;color:#fff;padding:18px 14px 36px;overflow:auto}
+.journal-settings-card{width:min(720px,100%);margin:0 auto;background:#13242c;border:1px solid #2b4853;border-radius:20px;padding:18px;box-shadow:0 24px 70px rgba(0,0,0,.28)}
+.journal-settings-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.journal-settings-head span{font-size:7px;letter-spacing:.16em;color:#77e1d2;font-weight:900}.journal-settings-head h1{font:900 24px/1.05 'Space Grotesk';margin:5px 0 7px}.journal-settings-head p{font-size:11px;line-height:1.55;color:#9eb1b9;max-width:510px;margin:0}.journal-setting-close{background:#77b8ff;color:#10202a;text-decoration:none;border-radius:10px;padding:8px 11px;font-size:9px;font-weight:900;white-space:nowrap}
+.journal-setting-group{margin-top:16px;padding-top:14px;border-top:1px solid #28404a}.journal-setting-group h2{font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 9px;color:#d9e5e9}.journal-setting-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.journal-setting-grid label,.journal-bg-upload{display:grid;gap:5px;font-size:9px;font-weight:900;color:#a8bbc2}.journal-setting-grid select,.journal-bg-upload input[type=file]{background:#0c151a;color:#fff;border:1px solid #304a55;border-radius:10px;padding:9px;font-size:11px}.journal-theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.journal-theme{border:1px solid #3b5660;border-radius:12px;padding:14px 7px;font-size:9px;font-weight:900;color:#fff;cursor:pointer}.journal-theme.active{outline:2px solid #77b8ff;outline-offset:2px}.journal-theme.midnight{background:#0b1115}.journal-theme.dusk{background:#302538}.journal-theme.paper{background:#e9dfc7;color:#172028}.journal-theme.sea{background:#123f46}.journal-color-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.journal-color-row label{display:grid;gap:6px;font-size:9px;font-weight:900;color:#a8bbc2}.journal-color-row input{width:100%;height:42px;border:1px solid #304a55;border-radius:10px;background:#0c151a;padding:3px}.journal-bg-upload small{font-size:8px;color:#71858e}.journal-secret-box p{font-size:10px;color:#91a7b0;line-height:1.5;margin:0 0 8px}.journal-soft.wide{width:100%}
+:root{--jr-ink:#f4f6f7;--jr-page:#020506;--jr-accent:#77b8ff;--jr-line:1.75}
+.journal-v4-page p,.journal-v4-book>div,.journal-v4-page,.journal-v4-book{color:var(--jr-ink)}.journal-v4-page,.journal-v4-book>div{background-color:var(--jr-page)}.journal-v4-mood.active,.journal-v4-edit{background:var(--jr-accent)}.journal-v4-page p,.journal-v4-book>div{line-height:var(--jr-line)}.journal-v4-book>div{font-size:calc(var(--jr-font)*1px)}
+@media(max-width:600px){.journal-settings-screen{padding:10px 8px 28px}.journal-settings-card{padding:14px;border-radius:16px}.journal-settings-head h1{font-size:20px}.journal-theme-grid{grid-template-columns:1fr 1fr}.journal-setting-grid,.journal-color-row{grid-template-columns:1fr}.journal-setting-close{font-size:8px;padding:7px 9px}}
