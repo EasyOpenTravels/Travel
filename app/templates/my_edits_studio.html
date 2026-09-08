@@ -25,7 +25,7 @@
       {% else %}
       <section class="edits-v5-card-work">
         <div class="edits-v5-preview-pane">
-          <div class="edits-v5-pane-head"><span>LIVE CARD</span><button type="button" onclick="surpriseCardV5()">Surprise me ✦</button></div>
+          <div class="edits-v5-pane-head"><span>LIVE CARD</span><div class="edits-v5-pane-actions"><button type="button" onclick="surpriseCardV5()">Surprise me ✦</button><button type="button" id="downloadCurrentCardV5" onclick="downloadCurrentCardV5()">Download PNG</button></div></div>
           <div id="cardV5Preview" class="edits-v5-card-preview yellow sticky sunny">
             <small>OPEN ROAD · LITTLE NOTE</small><h2 id="cardV5TitleOut">YOU GOT THIS.</h2><p id="cardV5BodyOut">Write anything you want here — an encouragement, reminder, tiny to-do, quote or message.</p><b class="edits-v5-card-star">✦</b><span class="edits-v5-card-tinyqr">▦</span><em class="edits-v5-card-brand">OPEN ROAD</em>
           </div>
@@ -61,6 +61,7 @@ document.body.classList.add('personal-route-body','edits-v5-body');
  window.sampleCardV5=(title,body,color,font,shape,style)=>{t.value=title;b.value=body;['color','font_style','shape_style','design_style'].forEach((n,v)=>{});document.querySelectorAll('input[name=color]').forEach(x=>x.checked=x.value===color);document.querySelectorAll('input[name=font_style]').forEach(x=>x.checked=x.value===font);document.querySelectorAll('input[name=shape_style]').forEach(x=>x.checked=x.value===shape);document.querySelectorAll('input[name=design_style]').forEach(x=>x.checked=x.value===style);paint()};
  window.loadSavedCardV5=(id,title,body,color,font,shape,style,qr,sig)=>{document.querySelector('.edits-v5-main')?.scrollTo?.(0,0);t.value=title;b.value=body;document.getElementById('cardV5Id').value=id;sampleCardV5(title,body,color,font,shape,style);document.querySelector('input[name=qr_enabled]').checked=!!qr;document.querySelector('input[name=signature_enabled]').checked=!!sig;document.body.classList.remove('edits-v5-drawer-open');paint()};
  window.surpriseCardV5=()=>{const p=(n)=>{const xs=[...document.querySelectorAll('input[name='+n+']')];xs[Math.floor(Math.random()*xs.length)].checked=true};p('color');p('font_style');p('shape_style');p('design_style');paint()};
+ window.downloadCurrentCardV5=()=>{const id=document.getElementById('cardV5Id')?.value;if(!id){t.focus();return;}window.location.href='/my-stuff/card/'+encodeURIComponent(id)+'/download?style=sunny&seed='+encodeURIComponent(id)+'&brand=1';};
  window.savePngV5=()=>{document.getElementById('cardV5AfterSave').value='png';form.requestSubmit();};
  [t,b].forEach(x=>x.addEventListener('input',paint));document.querySelectorAll('.edits-v5-card-form input').forEach(x=>x.addEventListener('change',paint));paint();
 })();
