@@ -988,7 +988,11 @@ def my_stuff_card_save():
     if shape_style not in {'sticky','rounded','ticket','cloud','note','arch'}: shape_style='sticky'
     if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
-    if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
+    if not body:
+        flash('Write something on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
+    if not title:
+        first_line=next((line.strip() for line in body.splitlines() if line.strip()), '')
+        title=(first_line[:70] or 'My little card')
     after_save=request.form.get('after_save','').strip().lower()
     if card_id:
         db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
@@ -997,6 +1001,8 @@ def my_stuff_card_save():
     db.commit(); flash(msg,'success')
     if after_save == 'png':
         return redirect(url_for('public.my_stuff_card_download', card_id=saved_id, style=design_style, seed=saved_id, brand=1))
+    if after_save in {'stay','edits'}:
+        return redirect(url_for('public.my_stuff_edits_studio', saved=saved_id))
     return redirect(url_for('public.my_stuff_cards'))
 
 
@@ -1119,8 +1125,8 @@ def my_stuff_card_download(card_id):
     row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
     if not row: abort(404)
     style=request.args.get('style','sunrise').strip().lower()
-    allowed={'sunrise','editorial','poster','minimal','playful','night'}
-    if style not in allowed: style='sunrise'
+    allowed={'sunrise','editorial','poster','minimal','playful','night','sunny','pastel','marker'}
+    if style not in allowed: style='sunny'
     try: seed=int(request.args.get('seed','0'))
     except ValueError: seed=0
     include=request.args.get('brand','1') not in {'0','false','no'}
