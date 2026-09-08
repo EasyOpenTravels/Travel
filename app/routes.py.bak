@@ -978,119 +978,112 @@ def my_stuff_card_save():
     if not user: abort(403)
     if not _cards_allowed(user):
         flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
-    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','yellow').strip().lower(); folder_id=request.form.get('folder_id') or None
-    card_style=request.form.get('card_style','sticky').strip().lower()
-    card_shape=request.form.get('card_shape','round').strip().lower()
-    card_text_style=request.form.get('card_text_style','bold').strip().lower()
-    card_sticker=request.form.get('card_sticker','star').strip().lower()
-    qr_enabled=1 if request.form.get('card_qr_enabled','1') in {'1','on','true','yes'} else 0
-    allowed_colors=set(_stuff_colors())
-    allowed_styles={'sticky','paper','tape','poster','window'}
-    allowed_shapes={'round','ticket','cloud','squared'}
-    allowed_text={'bold','hand','clean','serif'}
-    allowed_stickers={'star','heart','smile','spark','check','none'}
-    if color not in allowed_colors: color='yellow'
-    if card_style not in allowed_styles: card_style='sticky'
-    if card_shape not in allowed_shapes: card_shape='round'
-    if card_text_style not in allowed_text: card_text_style='bold'
-    if card_sticker not in allowed_stickers: card_sticker='star'
+    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
+    if color not in _stuff_colors(): color='lime'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
     if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
     if card_id:
-        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,card_style=?,card_shape=?,card_text_style=?,card_sticker=?,card_qr_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,qr_enabled,now(),card_id,user['id'])); msg='Card updated.'
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,now(),card_id,user['id'])); msg='Card updated.'
     else:
-        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,card_qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,card_style,card_shape,card_text_style,card_sticker,qr_enabled,now(),now())); msg='Card saved.'
+        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,now(),now())); msg='Card saved.'
     db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_cards'))
 
 
 
 def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from io import BytesIO
-    import random
+    import math, textwrap
     palettes = {
-        'lime': ('#E9F5A5','#142229','#72A44A'), 'aqua': ('#BCEEE8','#142229','#3C9F96'),
-        'orange': ('#FFC68E','#142229','#D66F35'), 'pink': ('#FFC5D5','#142229','#D35B7D'),
-        'blue': ('#BCD7FF','#142229','#4F74BC'), 'yellow': ('#FFE56E','#142229','#C49B17'),
-        'teal': ('#78D8C9','#142229','#2E9489'), 'white': ('#FFFFFF','#142229','#D6D9D2')}
-    bg,ink,accent=palettes.get(card['color'],palettes['yellow'])
-    style=getattr(card,'_export_style',None) or card.get('card_style','sticky') or 'sticky'
-    shape=getattr(card,'_export_shape',None) or card.get('card_shape','round') or 'round'
-    text_style=getattr(card,'_export_text_style',None) or card.get('card_text_style','bold') or 'bold'
-    sticker=getattr(card,'_export_sticker',None) or card.get('card_sticker','star') or 'star'
-    W,H=1800,1200
-    img=Image.new('RGB',(W,H),'#F3E8D7'); d=ImageDraw.Draw(img)
-    def rgb(x):
-        x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
-    bgc,inkc,accc=rgb(bg),rgb(ink),rgb(accent)
-    rng=random.Random(getattr(card,'_export_seed',0) or card['id']*7919)
-    for _ in range(30):
-        x=rng.randrange(W); y=rng.randrange(H); r=rng.randrange(2,7); d.ellipse((x-r,y-r,x+r,y+r),fill=(235,222,205))
-    bold=['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
-    reg=['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
-    serif=['/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf','/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf']
+        'lime': ('#e9f5a5','#12212a','#89b85e'), 'aqua': ('#bceee8','#12212a','#4baea3'),
+        'orange': ('#ffc68e','#12212a','#d47a40'), 'pink': ('#ffc5d5','#12212a','#d56c8d'),
+        'blue': ('#bcd7ff','#12212a','#4d79bd'), 'yellow': ('#ffe26e','#12212a','#c89e2a'),
+        'teal': ('#78d8c9','#12212a','#389b8e'), 'white': ('#ffffff','#12212a','#d8ddd9'),
+    }
+    styles = {
+        'sunrise': ('rounded','offset'), 'editorial': ('paper','rule'), 'poster': ('blocks','frame'),
+        'minimal': ('minimal','line'), 'playful': ('blob','dots'), 'night': ('dark','glow')
+    }
+    style_key = getattr(card, '_export_style', None) or 'sunrise'
+    seed = int(getattr(card, '_export_seed', 0) or 0)
+    bg, ink, accent = palettes.get(card['color'], palettes['lime'])
+    kind, deco = styles.get(style_key, styles['sunrise'])
+    if style_key == 'night': bg, ink, accent = '#10212a','#ffffff', palettes.get(card['color'], palettes['aqua'])[0]
+    W,H=1600,1000
+    img=Image.new('RGB',(W,H),bg); d=ImageDraw.Draw(img)
+    def hexrgb(x): x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
+    bgc,inkc,accc=hexrgb(bg),hexrgb(ink),hexrgb(accent)
+    rng=__import__('random').Random(seed or card['id']*991)
+    # decorative geometry, deterministic per seed/style
+    if deco=='offset':
+        d.rounded_rectangle((42,42,W-42,H-42),radius=46,outline=inkc,width=6)
+        d.rounded_rectangle((90,90,W-90,H-90),radius=34,outline=accc,width=3)
+        for i in range(7):
+            x=rng.randint(120,W-220); y=rng.randint(110,H-300); r=rng.randint(18,60)
+            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
+    elif deco=='rule':
+        for y in (82,170): d.line((90,y,W-90,y),fill=inkc,width=3)
+        d.rectangle((90,185,220,255),fill=accc)
+    elif deco=='frame':
+        d.rectangle((55,55,W-55,H-55),outline=inkc,width=8)
+        d.rectangle((85,85,W-85,H-85),outline=accc,width=4)
+        for x in range(115,W-110,130): d.line((x,94,x+38,94),fill=accc,width=8)
+    elif deco=='line':
+        d.line((95,H-170,W-95,H-170),fill=accc,width=10)
+        d.line((95,170,620,170),fill=inkc,width=3)
+    elif deco=='dots':
+        for i in range(32):
+            x=rng.randint(70,W-70); y=rng.randint(60,H-170); r=rng.randint(4,11)
+            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
+    elif deco=='glow':
+        glow=Image.new('RGBA',(W,H),(0,0,0,0)); gd=ImageDraw.Draw(glow)
+        for _ in range(10):
+            x=rng.randint(50,W-50); y=rng.randint(50,H-220); r=rng.randint(80,230)
+            gd.ellipse((x-r,y-r,x+r,y+r),fill=accc+(40,))
+        glow=glow.filter(ImageFilter.GaussianBlur(25)); img=Image.alpha_composite(img.convert('RGBA'),glow).convert('RGB'); d=ImageDraw.Draw(img)
+    font_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
+    reg_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
     def load(paths,size):
-        for f in paths:
-            if Path(f).exists(): return ImageFont.truetype(f,size)
+        for fp in paths:
+            if Path(fp).exists(): return ImageFont.truetype(fp,size=size)
         return ImageFont.load_default()
-    if text_style=='serif': tf=load(serif,88); bf=load(serif,42)
-    elif text_style=='clean': tf=load(reg,82); bf=load(reg,40)
-    else: tf=load(bold,88); bf=load(reg,42)
-    small=load(bold,28); tiny=load(reg,22)
-    box=(165,135,W-165,H-150)
-    # Shadow + card body in a real sticky-note language
-    shadow=(box[0]+22,box[1]+28,box[2]+22,box[3]+28)
-    d.rounded_rectangle(shadow,radius=42,fill=(50,54,50))
-    if style=='paper':
-        d.rectangle(box,fill=bgc,outline=inkc,width=6)
-        for yy in range(box[1]+165,box[3]-80,84): d.line((box[0]+45,yy,box[2]-45,yy),fill=(210,210,192),width=2)
-    elif style=='poster':
-        d.rectangle((box[0]+14,box[1]+14,box[2]+14,box[3]+14),fill=(35,40,44))
-        d.rounded_rectangle(box,radius=18,fill=bgc,outline=inkc,width=7); d.rectangle((box[0]+34,box[1]+34,box[2]-34,box[3]-34),outline=accc,width=5)
-    elif style=='tape':
-        d.rounded_rectangle(box,radius=36,fill=bgc,outline=inkc,width=7)
-        tape=Image.new('RGBA',(300,105),(0,0,0,0)); td=ImageDraw.Draw(tape); td.rectangle((8,14,292,90),fill=(255,255,255,120)); tape=tape.rotate(-7,expand=True); img.paste(tape,(box[0]+140,box[1]-45),tape); d=ImageDraw.Draw(img)
-    elif style=='window':
-        d.rounded_rectangle(box,radius=30,fill=bgc,outline=inkc,width=6)
-        d.rounded_rectangle((box[0]+28,box[1]+28,box[2]-28,box[3]-28),outline=accc,width=4)
-    else:
-        d.rounded_rectangle(box,radius=42,fill=bgc,outline=inkc,width=7)
-    if shape=='ticket':
-        for cx in (box[0],box[2]):
-            cy=(box[1]+box[3])//2; d.ellipse((cx-30,cy-30,cx+30,cy+30),fill=rgb('#F3E8D7'))
-    elif shape=='cloud':
-        for x,y,r in ((box[0]+90,box[1]+90,55),(box[2]-100,box[1]+115,72),(box[2]-130,box[3]-95,50)):
-            d.ellipse((x-r,y-r,x+r,y+r),fill=bgc)
-    elif shape=='squared': d.rectangle(box,fill=bgc,outline=inkc,width=7)
-    icons={'star':'★','heart':'♥','smile':'☺','spark':'✦','check':'✓','none':''}
-    if sticker!='none':
-        sf=load(bold,50); sx,sy=box[2]-112,box[1]+78
-        d.ellipse((sx-36,sy-36,sx+36,sy+36),fill=accc,outline=inkc,width=4); d.text((sx-25,sy-29),icons.get(sticker,'★'),font=sf,fill=inkc)
-    d.text((box[0]+70,box[1]+58),'OPEN ROAD · LITTLE CARD',font=small,fill=inkc)
-    title=(card['title'] or 'A little reminder').strip(); body=(card['body'] or '').strip()
-    def wrap(text,font,maxw,limit):
-        out=[]; cur=''
-        for w in text.split():
-            test=(cur+' '+w).strip()
-            if d.textbbox((0,0),test,font=font)[2] <= maxw: cur=test
-            else:
-                if cur: out.append(cur)
-                cur=w
-                if len(out)>=limit: break
-        if cur and len(out)<limit: out.append(cur)
-        return out
-    ty=box[1]+205
-    for line in wrap(title,tf,box[2]-box[0]-150,3): d.text((box[0]+70,ty),line,font=tf,fill=inkc); ty+=96
-    by=ty+32
-    for line in wrap(body,bf,box[2]-box[0]-190,7): d.text((box[0]+70,by),line,font=bf,fill=inkc); by+=61
-    fy=box[3]-110; d.line((box[0]+70,fy,box[2]-70,fy),fill=accc,width=6); d.text((box[0]+70,fy+22),'KEEP IT. STICK IT. SHARE IT.',font=tiny,fill=inkc)
-    if include_branding and getattr(card,'_export_qr_enabled',1):
+    f_label=load(font_paths,34); f_title=load(font_paths,92); f_body=load(reg_paths,44); f_small=load(reg_paths,24); f_brand=load(font_paths,26)
+    d.text((110,115),'OPEN ROAD · QUICK CARD',font=f_label,fill=inkc)
+    title=card['title'] or 'Untitled card'
+    body=card['body'] or ''
+    d.text((110,205),title,font=f_title,fill=inkc)
+    max_width=1240; lines=[]
+    words=body.split(); cur=''
+    for w in words:
+        test=(cur+' '+w).strip()
+        if d.textbbox((0,0),test,font=f_body)[2] <= max_width: cur=test
+        else:
+            if cur: lines.append(cur)
+            cur=w
+    if cur: lines.append(cur)
+    lines=lines[:7]
+    y=355
+    for line in lines:
+        d.text((110,y),line,font=f_body,fill=inkc); y+=62
+    # quiet footer marker
+    footer_y=H-125
+    d.line((110,footer_y-18,W-110,footer_y-18),fill=accc,width=4)
+    d.text((110,footer_y), 'KEEP THIS. SHARE THIS. MAKE IT YOURS.', font=f_small, fill=inkc)
+    if include_branding:
         try:
             from .qr import make_qr_bytes
-            q=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB'); q.thumbnail((92,92),Image.Resampling.LANCZOS)
-            qx,qy=box[2]-175,fy-4; d.rounded_rectangle((qx-8,qy-8,qx+q.width+8,qy+q.height+8),radius=9,fill='white'); img.paste(q,(qx,qy))
-            d.text((box[2]-255,fy+22),brand_name[:22],font=load(bold,20),fill=inkc)
-        except Exception: pass
+            from PIL import Image as PILImage
+            qr_img=PILImage.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB')
+            qr_img.thumbnail((145,145), PILImage.Resampling.LANCZOS)
+            qx,qy=W-285,footer_y-75
+            d.rounded_rectangle((qx-12,qy-12,qx+qr_img.width+12,qy+qr_img.height+12),radius=18,fill=(255,255,255))
+            img.paste(qr_img,(qx,qy))
+            d.rounded_rectangle((W-720,footer_y-38,W-315,footer_y+38),radius=26,fill=inkc)
+            brand_label=brand_name[:28]
+            d.text((W-680,footer_y-17),brand_label,font=load(font_paths,23),fill=bgc)
+        except Exception:
+            d.rounded_rectangle((W-560,footer_y-38,W-118,footer_y+38),radius=26,fill=inkc)
+            d.text((W-525,footer_y-17),brand_name[:28],font=load(font_paths,23),fill=bgc)
     return img
 
 @bp.get('/my-stuff/card/<int:card_id>/download')
@@ -1107,16 +1100,8 @@ def my_stuff_card_download(card_id):
     except ValueError: seed=0
     include=request.args.get('brand','1') not in {'0','false','no'}
     class CardProxy:
-        def __init__(self,r,style,seed):
-            self._r=r; self._export_style=style; self._export_seed=seed
-            self._export_shape=r['card_shape'] if 'card_shape' in r.keys() else 'round'
-            self._export_text_style=r['card_text_style'] if 'card_text_style' in r.keys() else 'bold'
-            self._export_sticker=r['card_sticker'] if 'card_sticker' in r.keys() else 'star'
-            self._export_qr_enabled=r['card_qr_enabled'] if 'card_qr_enabled' in r.keys() else 1
+        def __init__(self,r,style,seed): self._r=r; self._export_style=style; self._export_seed=seed
         def __getitem__(self,k): return self._r[k]
-        def get(self,k,default=None):
-            try: return self._r[k]
-            except Exception: return default
     card=CardProxy(row,style,seed)
     image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
     out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)

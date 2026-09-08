@@ -291,17 +291,6 @@ def init_db(app):
         if 'segments_json' not in _column_names(db, 'journal_entries'):
             db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
 
-        if 'card_style' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_style TEXT NOT NULL DEFAULT 'sticky'")
-        if 'card_shape' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_shape TEXT NOT NULL DEFAULT 'round'")
-        if 'card_text_style' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_text_style TEXT NOT NULL DEFAULT 'bold'")
-        if 'card_sticker' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_sticker TEXT NOT NULL DEFAULT 'star'")
-        if 'card_qr_enabled' not in _column_names(db, 'stuff_cards'):
-            db.execute("ALTER TABLE stuff_cards ADD COLUMN card_qr_enabled INTEGER NOT NULL DEFAULT 1")
-
         import secrets
         # Backfill scanner/access identifiers on databases created by earlier builds.
         if 'scanner_code' in _column_names(db, 'event_ticket_events'):
