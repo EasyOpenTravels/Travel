@@ -1,4 +1,4 @@
-import re, secrets, sqlite3, os, hmac
+import re, secrets, sqlite3, os, hmac, json
 from datetime import datetime, timezone
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
@@ -703,6 +703,206 @@ def event_scan(ticket_code):
         return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
     guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
     return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance=guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
+
+@bp.before_request
+def _ensure_stuff_session():
+    # Only mark the extra lock as stale when the user logs out or changes account.
+    uid = session.get('user_id')
+    if session.get('_stuff_user_id') != uid:
+        session.pop('stuff_unlocked', None)
+        session['_stuff_user_id'] = uid
+
+
+def _current_user_for_stuff():
+    uid = session.get('user_id')
+    if not uid:
+        return None
+    return get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL', (uid,)).fetchone()
+
+
+def _stuff_colors():
+    return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white']
+
+
+def _safe_stuff_image_name(original):
+    from werkzeug.utils import secure_filename
+    base = secure_filename(original) or 'image'
+    stem = base.rsplit('.', 1)[0][:55]
+    return f"{stem}-{secrets.token_hex(5)}.jpg"
+
+
+@bp.route('/my-stuff', methods=['GET', 'POST'])
+def my_stuff():
+    user = _current_user_for_stuff()
+    if not user:
+        session['next_url'] = url_for('public.my_stuff')
+        return redirect(url_for('public.login'))
+    db = get_db()
+    if not user['stuff_id_hash']:
+        if request.method == 'POST' and request.form.get('action') == 'create_stuff_id':
+            simple_id = request.form.get('stuff_id', '').strip()
+            if not re.fullmatch(r'[A-Za-z0-9]{4,8}', simple_id):
+                flash('Choose a simple 4–8 character ID using letters and numbers.', 'error')
+            else:
+                db.execute('UPDATE users SET stuff_id_hash=? WHERE id=?', (hash_pin(simple_id), user['id']))
+                db.commit(); session['stuff_unlocked'] = True; flash('My Stuff is ready.', 'success')
+                return redirect(url_for('public.my_stuff'))
+        return render_template('my_stuff.html', setup=True, user=user, colors=_stuff_colors(), folders=[], cards=[], copies=[], images=[])
+    if not session.get('stuff_unlocked'):
+        if request.method == 'POST' and request.form.get('action') == 'unlock_stuff':
+            simple_id = request.form.get('stuff_id', '').strip()
+            if verify_pin(user['stuff_id_hash'], simple_id):
+                session['stuff_unlocked'] = True
+                return redirect(url_for('public.my_stuff'))
+            flash('That My Stuff ID did not unlock this space.', 'error')
+        return render_template('my_stuff.html', lock=True, setup=False, user=user, colors=_stuff_colors(), folders=[], cards=[], copies=[], images=[])
+
+    folders = db.execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY id', (user['id'],)).fetchall()
+    cards = db.execute('''SELECT c.*,f.name folder_name FROM stuff_cards c LEFT JOIN stuff_folders f ON f.id=c.folder_id
+                          WHERE c.user_id=? ORDER BY c.updated_at DESC, c.id DESC''', (user['id'],)).fetchall()
+    copies = db.execute('SELECT * FROM saved_copies WHERE user_id=? ORDER BY id DESC', (user['id'],)).fetchall()
+    images = db.execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 24', (user['id'],)).fetchall()
+    return render_template('my_stuff.html', setup=False, lock=False, user=user, colors=_stuff_colors(), folders=folders, cards=cards, copies=copies, images=images)
+
+
+@bp.post('/my-stuff/folder/save')
+def my_stuff_folder_save():
+    user = _current_user_for_stuff()
+    if not user: return redirect(url_for('public.login', next=url_for('public.my_stuff')))
+    if not session.get('stuff_unlocked'): return redirect(url_for('public.my_stuff'))
+    db = get_db(); folder_id = request.form.get('folder_id', '').strip()
+    name = request.form.get('name', '').strip()[:60]; color = request.form.get('color', 'lime')
+    if color not in _stuff_colors(): color = 'lime'
+    if not name:
+        flash('Give the folder a name.', 'error'); return redirect(url_for('public.my_stuff'))
+    try:
+        if folder_id:
+            db.execute('UPDATE stuff_folders SET name=?,color=? WHERE id=? AND user_id=?', (name, color, folder_id, user['id']))
+        else:
+            db.execute('INSERT INTO stuff_folders(user_id,name,color,created_at) VALUES(?,?,?,?)', (user['id'], name, color, now()))
+        db.commit(); flash('Folder saved.', 'success')
+    except sqlite3.IntegrityError:
+        flash('You already have a folder with that name.', 'error')
+    return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/folder/<int:folder_id>/delete')
+def my_stuff_folder_delete(folder_id):
+    user = _current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db = get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?', (folder_id, user['id'])); db.commit()
+    flash('Folder deleted. Cards are kept without a folder.', 'success')
+    return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/card/save')
+def my_stuff_card_save():
+    user = _current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db = get_db(); card_id = request.form.get('card_id', '').strip(); title = request.form.get('title','').strip()[:100]
+    body = request.form.get('body','').strip(); color = request.form.get('color','lime'); folder_id = request.form.get('folder_id') or None
+    if color not in _stuff_colors(): color = 'lime'
+    if folder_id:
+        owned = db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone()
+        if not owned: folder_id = None
+    if not title or not body:
+        flash('Give the card a title and something to keep on it.', 'error'); return redirect(url_for('public.my_stuff'))
+    if card_id:
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,updated_at=? WHERE id=? AND user_id=?', (folder_id,title,body,color,now(),card_id,user['id']))
+        msg='Card updated.'
+    else:
+        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?,?)', (user['id'],folder_id,title,body,color,now(),now()))
+        msg='Card saved.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/card/<int:card_id>/delete')
+def my_stuff_card_delete(card_id):
+    user = _current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+    db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    if row and row['image_filename']:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'], row['image_filename']))
+        except OSError: pass
+    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/copy/save')
+def my_stuff_copy_save():
+    user = _current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db=get_db(); item_id=request.form.get('item_id','').strip(); label=request.form.get('label','').strip()[:80]
+    value=request.form.get('value','').strip(); note=request.form.get('note','').strip()[:180]
+    if not label or not value:
+        flash('Add a name and the number/code you want to keep.','error'); return redirect(url_for('public.my_stuff'))
+    if item_id:
+        db.execute('UPDATE saved_copies SET label=?,value=?,note=?,updated_at=? WHERE id=? AND user_id=?',(label,value,note,now(),item_id,user['id']))
+        msg='Saved number updated.'
+    else:
+        db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now()))
+        msg='Saved to Copy.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/copy/<int:item_id>/delete')
+def my_stuff_copy_delete(item_id):
+    user=_current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit()
+    flash('Saved number deleted.','success'); return redirect(url_for('public.my_stuff'))
+
+
+@bp.post('/my-stuff/image')
+def my_stuff_image():
+    user=_current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    f=request.files.get('image'); operation=request.form.get('operation','clean')
+    if not f or not f.filename:
+        flash('Choose an image first.','error'); return redirect(url_for('public.my_stuff'))
+    if operation not in {'clean','grayscale','web'}: operation='clean'
+    try:
+        from PIL import Image, ImageOps
+        raw=f.read()
+        from io import BytesIO
+        source=Image.open(BytesIO(raw))
+        source.verify()
+        source=Image.open(BytesIO(raw)).convert('RGB')
+        source=ImageOps.exif_transpose(source)
+        if operation=='grayscale': source=ImageOps.grayscale(source).convert('RGB')
+        elif operation=='web': source.thumbnail((1600,1600), Image.Resampling.LANCZOS)
+        out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id']))
+        os.makedirs(stuff_dir,exist_ok=True); out_path=os.path.join(stuff_dir,out_name)
+        source.save(out_path,'JPEG',quality=91,optimize=True)
+        logical=os.path.join('stuff',str(user['id']),out_name)
+        db=get_db(); db.execute('INSERT INTO stuff_images(user_id,original_name,filename,operation,created_at) VALUES(?,?,?,?,?)',(user['id'],f.filename,logical,operation,now())); db.commit()
+        flash('Image processed. Metadata has been removed from the new file.','success')
+    except Exception:
+        flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
+    return redirect(url_for('public.my_stuff'))
+
+
+@bp.get('/my-stuff/image/<int:image_id>')
+def my_stuff_image(image_id):
+    user=_current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    row=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
+    if not row: abort(404)
+    path=os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename'])
+    return send_file(path, as_attachment=True, download_name='open-road-'+os.path.basename(path), mimetype='image/jpeg')
+
+
+@bp.post('/my-stuff/image/<int:image_id>/delete')
+def my_stuff_image_delete(image_id):
+    user=_current_user_for_stuff()
+    if not user or not session.get('stuff_unlocked'): abort(403)
+    db=get_db(); row=db.execute('SELECT filename FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
+    db.execute('DELETE FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])); db.commit()
+    if row:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']))
+        except OSError: pass
+    flash('Image history item deleted.','success'); return redirect(url_for('public.my_stuff'))
+
 
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)

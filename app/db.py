@@ -166,6 +166,48 @@ CREATE TABLE IF NOT EXISTS event_tickets (
  FOREIGN KEY(attendee_user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS stuff_folders (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ name TEXT NOT NULL,
+ color TEXT NOT NULL DEFAULT 'lime',
+ created_at TEXT NOT NULL,
+ UNIQUE(user_id, name),
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS stuff_cards (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ folder_id INTEGER,
+ title TEXT NOT NULL,
+ body TEXT NOT NULL DEFAULT '',
+ color TEXT NOT NULL DEFAULT 'lime',
+ image_filename TEXT DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+ FOREIGN KEY(folder_id) REFERENCES stuff_folders(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS saved_copies (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ label TEXT NOT NULL,
+ value TEXT NOT NULL,
+ note TEXT DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS stuff_images (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL,
+ original_name TEXT NOT NULL,
+ filename TEXT NOT NULL,
+ operation TEXT NOT NULL DEFAULT 'clean',
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 '''
 
 def get_db():
@@ -195,6 +237,7 @@ def init_db(app):
                 'remember_token': 'ALTER TABLE users ADD COLUMN remember_token TEXT',
                 'remember_until': 'ALTER TABLE users ADD COLUMN remember_until TEXT',
                 'deleted_at': 'ALTER TABLE users ADD COLUMN deleted_at TEXT',
+                'stuff_id_hash': 'ALTER TABLE users ADD COLUMN stuff_id_hash TEXT',
             },
             'bookings': {
                 'payment_method': "ALTER TABLE bookings ADD COLUMN payment_method TEXT DEFAULT ''",

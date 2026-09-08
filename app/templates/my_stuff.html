@@ -1,0 +1,70 @@
+{% extends 'base.html' %}{% block content %}
+<section class="stuff-hero">
+  <div>
+    <div class="eyebrow">MY STUFF</div>
+    <h1>Little things. One easy place.</h1>
+    <p>Keep your useful numbers, colorful notes, quick cards and cleaned-up images close without turning your account into a filing cabinet.</p>
+  </div>
+  <div class="stuff-hero-badge"><span>YOUR SPACE</span><strong>Private</strong><small>{{ user.name.split()[0] }}</small></div>
+</section>
+
+{% if setup %}
+<section class="stuff-lock-page"><div class="stuff-lock-card warm">
+  <div class="eyebrow">ONE-TIME SETUP</div><h2>Create your My Stuff ID.</h2>
+  <p>This is a simple 4–8 character ID used as an extra lock for this personal space. You can use letters and numbers.</p>
+  <form method="post" class="stuff-inline-form"><input type="hidden" name="action" value="create_stuff_id"><input name="stuff_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" placeholder="e.g. ROAD26" required><button class="button primary">Create ID</button></form>
+  <small class="micro">Keep it somewhere you remember. Your normal Adventure ID still handles your account login.</small>
+</div></section>
+{% elif lock %}
+<section class="stuff-lock-page"><div class="stuff-lock-card dark">
+  <div class="eyebrow">MY STUFF IS LOCKED</div><h2>Enter your simple ID.</h2><p>This little second lock keeps your saved numbers and personal cards away from anyone using your unlocked browser session.</p>
+  <form method="post" class="stuff-inline-form"><input type="hidden" name="action" value="unlock_stuff"><input name="stuff_id" minlength="4" maxlength="8" autocomplete="off" placeholder="Your My Stuff ID" required><button class="button light">Unlock</button></form>
+</div></section>
+{% else %}
+<section class="stuff-shell">
+  <div class="stuff-toolbar"><div><span class="eyebrow">QUICK ACCESS</span><h2>Make or find something.</h2></div><div class="stuff-toolbar-actions"><a class="button secondary" href="#card-maker">+ Card</a><a class="button secondary" href="#save-copy">+ Save to Copy</a><a class="button secondary" href="#image-tools">Image tools</a></div></div>
+
+  <div class="stuff-grid">
+    <section class="stuff-panel card-maker" id="card-maker">
+      <div class="stuff-panel-head"><div><span class="eyebrow">MAKE A COLORFUL CARD</span><h2>Notes with a little personality.</h2></div><span class="stuff-count">{{ cards|length }}</span></div>
+      <p class="micro">Use a card for a mood, a packing list, a plan, a quote, a reminder or anything you want to glance at fast.</p>
+      <form method="post" action="{{ url_for('public.my_stuff_card_save') }}">
+        <input type="hidden" name="card_id" id="card_id"><div class="field-grid stuff-fields"><label>Title<input name="title" id="card_title" placeholder="Weekend mood" required></label><label>Folder<select name="folder_id"><option value="">No folder</option>{% for f in folders %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></label></div>
+        <label>What are you keeping?<textarea name="body" id="card_body" rows="5" placeholder="Write anything useful here..." required></textarea></label>
+        <div class="stuff-color-row"><b>Color</b>{% for c in colors %}<label class="stuff-color-option {{ c }}"><input type="radio" name="color" value="{{ c }}" {% if loop.first %}checked{% endif %}><span></span>{{ c|title }}</label>{% endfor %}</div>
+        <div class="button-row"><button class="button primary" id="card_save_button">Save card</button><button class="button secondary" type="button" onclick="clearCardForm()">Clear</button></div>
+      </form>
+      <div class="stuff-subpanel"><div class="stuff-panel-head"><div><span class="eyebrow">FOLDERS</span><h3>Cards by mood or purpose</h3></div></div>
+        <form method="post" action="{{ url_for('public.my_stuff_folder_save') }}" class="stuff-folder-form"><input name="name" placeholder="New folder e.g. Travel, Work, Mood" required><select name="color">{% for c in colors %}<option value="{{ c }}">{{ c|title }}</option>{% endfor %}</select><button class="button secondary">Add folder</button></form>
+        <div class="stuff-folder-list">{% for f in folders %}<div class="stuff-folder {{ f.color }}"><div><b>{{ f.name }}</b><small>{{ cards|selectattr('folder_id','equalto',f.id)|list|length }} cards</small></div><form method="post" action="{{ url_for('public.my_stuff_folder_delete',folder_id=f.id) }}"><button class="mini-action danger" title="Delete folder">Delete</button></form></div>{% else %}<span class="micro">Folders are optional. You can start with cards immediately.</span>{% endfor %}</div>
+      </div>
+      <div class="stuff-cards-grid">{% for c in cards %}<article class="stuff-card {{ c.color }}"><div class="stuff-card-top"><span>{{ c.folder_name or 'No folder' }}</span><div class="stuff-card-actions"><button type="button" class="mini-action" onclick='editCard({{ c.id }},{{ c.title|tojson }},{{ c.body|tojson }},{{ c.color|tojson }})'>Edit</button><form method="post" action="{{ url_for('public.my_stuff_card_delete',card_id=c.id) }}"><button class="mini-action danger">Delete</button></form></div></div><h3>{{ c.title }}</h3><p>{{ c.body }}</p><small>Updated {{ c.updated_at }}</small></article>{% else %}<div class="empty large">Your first card can be as simple as “Things to pack” or “Ideas for Saturday”.</div>{% endfor %}</div>
+    </section>
+
+    <section class="stuff-panel copy-panel" id="save-copy">
+      <div class="stuff-panel-head"><div><span class="eyebrow">SAVE TO COPY</span><h2>Numbers you use often.</h2></div><span class="stuff-count">{{ copies|length }}</span></div>
+      <p class="micro">Save a name, the number/code and a tiny note. Search it later, then tap Copy — the value goes straight to your clipboard and the button confirms it.</p>
+      <label class="stuff-search">Search your saved numbers<input id="copySearch" type="search" placeholder="Try: Till, Mum, Co-op, token..."></label>
+      <form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="copyForm">
+        <input type="hidden" name="item_id" id="copy_item_id"><label>Name<input name="label" id="copy_label" placeholder="My Till" required></label><label>Number / code<textarea name="value" id="copy_value" rows="3" placeholder="Paste the long number or code" required></textarea></label><label>Where / how to use it <span class="micro">Optional</span><input name="note" id="copy_note" placeholder="e.g. M-Pesa Till · use at checkout"></label><div class="button-row"><button class="button primary" id="copy_save_button">Save</button><button class="button secondary" type="button" onclick="clearCopyForm()">Clear</button></div>
+      </form>
+      <div class="copy-list" id="copyList">{% for item in copies %}<article class="copy-item" data-copy-search="{{ (item.label ~ ' ' ~ item.value ~ ' ' ~ item.note)|lower }}"><div class="copy-main"><strong>{{ item.label }}</strong><code>{{ item.value }}</code>{% if item.note %}<small>{{ item.note }}</small>{% endif %}</div><div class="copy-actions"><button type="button" class="copy-button" data-copy-value="{{ item.value|e }}">Copy</button><button type="button" class="mini-action" onclick='editCopy({{ item.id }},{{ item.label|tojson }},{{ item.value|tojson }},{{ item.note|tojson }})'>Edit</button><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button class="mini-action danger">Delete</button></form></div></article>{% else %}<div class="empty">Nothing saved yet. Your phone number, Till, Paybill or token can all live here.</div>{% endfor %}</div>
+    </section>
+  </div>
+
+  <section class="stuff-panel" id="image-tools"><div class="stuff-panel-head"><div><span class="eyebrow">IMAGE TOOLS</span><h2>Clean or transform an image.</h2></div></div>
+    <p class="micro">The new JPG is rebuilt from the pixels, which strips embedded metadata such as EXIF. Choose a quick transformation when you need one.</p>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('public.my_stuff_image') }}" class="image-tool-form"><label>Image<input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" required></label><div class="image-actions"><label class="tool-choice"><input type="radio" name="operation" value="clean" checked><span><b>Remove metadata</b><small>Keep the image looking natural.</small></span></label><label class="tool-choice"><input type="radio" name="operation" value="grayscale"><span><b>Grayscale + clean</b><small>Black & white, metadata removed.</small></span></label><label class="tool-choice"><input type="radio" name="operation" value="web"><span><b>Web-ready + clean</b><small>Resize to a practical max of 1600px.</small></span></label><button class="button primary">Process image</button></div></form>
+    <div class="image-history">{% for image in images %}<article><div><strong>{{ image.original_name }}</strong><span>{{ image.operation.replace('_',' ') }} · {{ image.created_at }}</span></div><div class="row-actions"><a href="{{ url_for('public.my_stuff_image',image_id=image.id) }}">Download</a><form method="post" action="{{ url_for('public.my_stuff_image_delete',image_id=image.id) }}"><button class="mini-action danger">Delete</button></form></div></article>{% else %}<span class="micro">Processed images will appear here for easy download.</span>{% endfor %}</div>
+  </section>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script>
+function clearCardForm(){document.getElementById('card_id').value='';document.getElementById('card_title').value='';document.getElementById('card_body').value='';document.getElementById('card_save_button').textContent='Save card';}
+function editCard(id,title,body,color){document.getElementById('card_id').value=id;document.getElementById('card_title').value=title;document.getElementById('card_body').value=body;const radio=document.querySelector('input[name="color"][value="'+color+'"]');if(radio)radio.checked=true;document.getElementById('card_save_button').textContent='Update card';document.getElementById('card-maker').scrollIntoView({behavior:'smooth',block:'start'});}
+function clearCopyForm(){document.getElementById('copy_item_id').value='';document.getElementById('copy_label').value='';document.getElementById('copy_value').value='';document.getElementById('copy_note').value='';document.getElementById('copy_save_button').textContent='Save';}
+function editCopy(id,label,value,note){document.getElementById('copy_item_id').value=id;document.getElementById('copy_label').value=label;document.getElementById('copy_value').value=value;document.getElementById('copy_note').value=note;document.getElementById('copy_save_button').textContent='Update';document.getElementById('save-copy').scrollIntoView({behavior:'smooth',block:'start'});}
+document.querySelectorAll('.copy-button').forEach(btn=>btn.addEventListener('click',async()=>{const value=btn.dataset.copyValue||'';try{await navigator.clipboard.writeText(value);const old=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=old,1300)}catch(e){btn.textContent='Select & copy';setTimeout(()=>btn.textContent='Copy',1300)}}));
+document.getElementById('copySearch')?.addEventListener('input',e=>{const q=e.target.value.toLowerCase().trim();document.querySelectorAll('.copy-item').forEach(el=>el.style.display=!q||el.dataset.copySearch.includes(q)?'flex':'none')});
+</script>{% endblock %}
