@@ -1,54 +1,68 @@
 {% extends 'base.html' %}{% block content %}
-<div class="personal-app isolated-app journal-app">
-  <aside class="personal-sidebar">
-    <a class="personal-back" href="{{ url_for('public.my_stuff') }}">← My Stuff</a>
-    <div class="personal-brand"><span class="eyebrow">01 · MY JOURNAL</span><strong>My Journal</strong><small>Private stories. One story at a time.</small></div>
-    <div class="journal-side-actions">
-      <a class="sidebar-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New memory</a>
-      <a class="side-nav-card" href="{{ url_for('public.my_stuff_cards') }}"><span>CARDS</span><b>Make a colourful card →</b></a>
+<div class="journal-phone-app">
+  <header class="journal-phone-top">
+    <a class="journal-my-stuff" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
+    <div class="journal-title-top">My Journal</div>
+    <button class="journal-menu-btn" type="button" onclick="document.body.classList.toggle('journal-menu-open')">Menu</button>
+  </header>
+  <aside class="journal-drawer" id="journalDrawer">
+    <div class="journal-drawer-head"><strong>Your stories</strong><button type="button" onclick="document.body.classList.remove('journal-menu-open')">×</button></div>
+    <a class="journal-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New memory</a>
+    <div class="journal-story-list">
+      {% for j in journals %}
+      <a class="journal-story-row {{ 'active' if entry and entry.id==j.id else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id) }}">
+        <i class="story-dot {{ j.cover_color }}"></i><div><strong>{{ j.title }}</strong><small>{{ j.mood|title }} · {{ j.updated_at }}</small></div>
+      </a>
+      {% else %}<div class="journal-empty-side">No memories yet.</div>{% endfor %}
     </div>
-    <div class="sidebar-section-head"><span>{{ 'ARCHIVED STORIES' if journal_view=='archived' else 'YOUR STORIES' }}</span><b>{{ archived_journal_count if journal_view=='archived' else journal_count }}</b></div>
-    <nav class="story-sidebar-list">
-      {% for j in journals %}<a class="story-side-item {{ 'active' if entry and entry.id==j.id and not edit_mode else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id,view=journal_view) }}"><span class="story-side-dot {{ j.cover_color }}"></span><div><strong>{{ j.title }}</strong><small>{{ j.mood|title }}</small></div></a>{% else %}<div class="sidebar-empty">No stories here yet.</div>{% endfor %}
-    </nav>
-    <div class="sidebar-bottom-links">
-      <a class="side-link" href="{{ url_for('public.my_stuff_journal',view='archived' if journal_view=='active' else 'active') }}">{{ '← Active stories' if journal_view=='archived' else 'Archive' }}</a>
-      <span class="private-side-note">PRIVATE · ONLY YOU</span>
-    </div>
-    <div class="journal-id-option">
-      <span class="eyebrow">OPTIONAL ID</span>
-      {% if simple_id_exists %}<strong>Open Road ID is active</strong><small>The same ID works across the app.</small>{% else %}<small>No ID is required for Journal.</small><button class="side-link" type="button" onclick="document.getElementById('idPanel').showModal()">Create my ID</button>{% endif %}
+    <div class="journal-drawer-foot">
+      <a href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a>
+      <span>PRIVATE · ONLY YOU</span>
     </div>
   </aside>
-
-  <main class="personal-main isolated-main journal-main">
-    {% if edit_mode %}
-      <section class="journal-write-screen">
-        <div class="isolated-topline"><div><span class="eyebrow">{{ 'EDIT MEMORY' if entry else 'NEW MEMORY' }}</span><h1>{{ 'Edit this memory' if entry else 'Write a new memory' }}</h1><p>This screen belongs only to Journal. Nothing below opens another tool.</p></div><div class="privacy-badge">PRIVATE · ONLY YOU</div></div>
-        <form method="post" action="{{ url_for('public.my_stuff_journal_save') }}" class="journal-form-isolated">
-          <input type="hidden" name="entry_id" value="{{ entry.id if entry else '' }}">
-          <div class="journal-form-title-row"><label>Title<input name="title" maxlength="140" value="{{ entry.title if entry else '' }}" placeholder="Give this memory a name" required></label><label>Mood<select name="mood">{% for m in moods %}<option value="{{ m }}" {% if entry and entry.mood==m %}selected{% endif %}>{{ m|title }}</option>{% endfor %}</select></label></div>
-          <label>Tags <span class="micro">Optional</span><input name="tags" maxlength="240" value="{{ entry.tags if entry else '' }}" placeholder="travel, family, school"></label>
-          <label class="journal-writing-label">Your story<textarea name="body" required placeholder="Write naturally. Your words stay in your private Journal.">{{ entry.body if entry else '' }}</textarea></label>
-          <div class="journal-write-footer"><div class="cover-palette"><span>Cover</span>{% for c in ['cream','lime','aqua','orange','pink','blue','sun'] %}<label class="cover-choice {{ c }}"><input type="radio" name="cover_color" value="{{ c }}" {% if (entry and entry.cover_color==c) or (not entry and loop.first) %}checked{% endif %}><i></i></label>{% endfor %}</div><div class="button-row"><a class="button secondary" href="{{ url_for('public.my_stuff_journal',entry=entry.id) if entry else url_for('public.my_stuff_journal') }}">Back to reading</a><button class="button primary">{{ 'Save changes' if entry else 'Save memory' }}</button></div></div>
-        </form>
-      </section>
-    {% elif entry %}
-      <section class="journal-reader-screen" data-body="{{ entry.body|e }}" data-title="{{ entry.title|e }}" data-mood="{{ entry.mood|title }}" data-created="{{ entry.created_at|e }}">
-        <div class="isolated-topline"><div><span class="eyebrow">MEMORY</span><h1>{{ entry.title }}</h1><p>{{ entry.mood|title }} · {{ entry.created_at }}</p></div><div class="reader-top-actions"><span class="privacy-badge">PRIVATE · ONLY YOU</span><a class="button secondary small" href="{{ url_for('public.my_stuff_journal',entry=entry.id,edit=1) }}">Edit</a></div></div>
-        {% if entry.tags %}<div class="reader-tags">{% for tag in entry.tags.split(',') %}<span>{{ tag.strip() }}</span>{% endfor %}</div>{% endif %}
-        <div class="journal-book" id="journalBook" aria-live="polite"><div class="journal-page-card {{ entry.cover_color }}" id="journalPageCard"><div class="journal-page-meta"><span>{{ entry.mood|title }}</span><span id="journalPageNumber">1 / 1</span></div><div class="journal-page-text" id="journalPageText"></div></div></div>
-        <div class="journal-reader-controls"><button id="prevPage" class="page-arrow" type="button" aria-label="Previous page">←</button><span class="swipe-hint">Swipe left for next page · swipe right for previous page</span><button id="nextPage" class="page-arrow" type="button" aria-label="Next page">→</button></div>
-        <div class="journal-reader-bottom"><div><b id="pageProgress">Page 1 of 1</b><small>{{ entry.body.split()|length }} words</small></div><div class="button-row"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button class="button secondary small">{{ '★ Favourited' if entry.favorite else '☆ Favourite' }}</button></form><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button class="button secondary small">{{ 'Unarchive' if entry.archived else 'Archive' }}</button></form><form method="post" action="{{ url_for('public.my_stuff_journal_delete',entry_id=entry.id) }}"><button class="button danger small">Delete</button></form></div></div>
-      </section>
+  <main class="journal-phone-main">
+    {% if journal_secret_set %}<div class="journal-private-chip">🔒 Journal protected</div>{% endif %}
+    {% if edit_mode or not entry %}
+    <section class="journal-write-view">
+      <form method="post" action="{{ url_for('public.my_stuff_journal_save') }}" id="journalForm" class="journal-writing-form">
+        <input type="hidden" name="entry_id" value="{{ entry.id if entry else '' }}">
+        <input type="hidden" name="segments_json" id="segmentsJson">
+        <div class="journal-write-head">
+          <input class="journal-title-input" name="title" maxlength="140" value="{{ entry.title if entry else '' }}" placeholder="Title" required autocomplete="off">
+          <select class="journal-mood-select" name="mood" aria-label="Journal time" onchange="setActiveMood(this.value)">
+            {% for m in moods %}<option value="{{ m }}" {% if (entry and entry.mood==m) or (not entry and loop.first) %}selected{% endif %}>{{ m|title }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mood-tabs" id="moodTabs">{% for m in moods %}<button type="button" class="mood-chip {{ 'active' if (entry and entry.mood==m) or (not entry and loop.first) else '' }}" data-mood="{{ m }}" onclick="setActiveMood('{{ m }}')">{{ m|title }}</button>{% endfor %}<button type="button" class="mood-add" onclick="addMoodDivider()">＋ time</button></div>
+        <div class="journal-page-editor" id="journalPageEditor" aria-label="Write your memory"></div>
+        <textarea id="legacyBody" name="body" hidden>{{ entry.body if entry else '' }}</textarea>
+        <div class="journal-write-footer"><span class="journal-page-count" id="pageCounter">Page 1</span><div class="journal-write-tools"><a class="journal-soft" id="journalSettingsLink" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a><button class="journal-soft" type="button" onclick="toggleEmoji()">😊</button><button class="journal-soft" type="button" onclick="addMoodDivider()">＋ time</button><button class="journal-save" type="submit">Save</button></div><div class="journal-emoji-palette" id="emojiPalette"><button type="button" onclick="insertEmoji('😊')">😊</button><button type="button" onclick="insertEmoji('❤️')">❤️</button><button type="button" onclick="insertEmoji('😂')">😂</button><button type="button" onclick="insertEmoji('✨')">✨</button><button type="button" onclick="insertEmoji('🌙')">🌙</button></div></div>
+      </form>
+    </section>
     {% else %}
-      <section class="journal-empty-screen"><div><span class="eyebrow">PRIVATE JOURNAL</span><h1>Your stories live here.</h1><p>Choose a saved story from the sidebar or start a new memory. Journal has its own screen, its own reading flow and nothing else mixed into it.</p><a class="button primary" href="{{ url_for('public.my_stuff_journal',write=1) }}">Write my first memory</a></div></section>
+    <section class="journal-read-view" id="journalReader" data-body="{{ entry.body|e }}" data-title="{{ entry.title|e }}">
+      <div class="journal-read-heading"><div><span>{{ entry.mood|title }}</span><h1>{{ entry.title }}</h1></div><div class="journal-read-actions"><a href="{{ url_for('public.my_stuff_journal',entry=entry.id,edit=1) }}">Edit</a></div></div>
+      <div class="journal-book-page" id="readPage"><div class="journal-page-paper"><div class="journal-read-text" id="readText"></div></div></div>
+      <div class="journal-read-footer"><button id="prevPage" type="button">‹</button><span id="readProgress">1 / 1</span><button id="nextPage" type="button">›</button></div>
+      <div class="journal-read-actions-bottom"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button>{{ '★' if entry.favorite else '☆' }}</button></form><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button>Archive</button></form><form method="post" action="{{ url_for('public.my_stuff_journal_delete',entry_id=entry.id) }}"><button>Delete</button></form></div>
+    </section>
     {% endif %}
   </main>
 </div>
-{% if not simple_id_exists %}<dialog id="idPanel" class="id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="journal"><div class="eyebrow">OPTIONAL OPEN ROAD ID</div><h2>Use one ID everywhere.</h2><p>You can keep using Journal without an ID. This is simply your one Open Road ID for the wider app.</p><label>Your ID<input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" placeholder="e.g. ROAD26" required></label><div class="button-row"><button class="button secondary" type="button" onclick="this.closest('dialog').close()">Not now</button><button class="button primary">Create ID</button></div></form></dialog>{% endif %}
-{% endblock %}
-{% block scripts %}<script>
-document.body.classList.add('personal-route-body');
-(function(){const screen=document.querySelector('.journal-reader-screen');if(!screen)return;const raw=screen.dataset.body||'';const text=document.getElementById('journalPageText');const card=document.getElementById('journalPageCard');const pageNo=document.getElementById('journalPageNumber');const progress=document.getElementById('pageProgress');const prev=document.getElementById('prevPage');const next=document.getElementById('nextPage');let page=0;let pages=[];function split(){const max=innerWidth<700?600:980;let chunks=[];for(const para of raw.split(/\n\s*\n/)){if(!para.trim())continue;let words=para.trim().split(/\s+/),cur='';for(const w of words){let t=(cur+' '+w).trim();if(t.length>max){if(cur)chunks.push(cur);cur=w}else cur=t}if(cur)chunks.push(cur)}if(!chunks.length)chunks=[''];pages=chunks;page=Math.min(page,pages.length-1);render()}function render(){text.textContent=pages[page]||'';const n=pages.length||1;pageNo.textContent=`${page+1} / ${n}`;progress.textContent=`Page ${page+1} of ${n}`;prev.disabled=page<=0;next.disabled=page>=n-1}function turn(dir){const n=pages.length;if(dir>0&&page>=n-1)return;if(dir<0&&page<=0)return;card.classList.remove('turn-next','turn-prev');void card.offsetWidth;card.classList.add(dir>0?'turn-next':'turn-prev');page+=dir;setTimeout(render,65);setTimeout(()=>card.classList.remove('turn-next','turn-prev'),280)}prev.onclick=()=>turn(-1);next.onclick=()=>turn(1);let sx=0,sy=0;card.addEventListener('touchstart',e=>{sx=e.changedTouches[0].clientX;sy=e.changedTouches[0].clientY},{passive:true});card.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.2)turn(dx<0?1:-1)},{passive:true});addEventListener('keydown',e=>{if(e.key==='ArrowLeft')turn(-1);if(e.key==='ArrowRight')turn(1)});addEventListener('resize',split);split()})();
+{% endblock %}{% block scripts %}<script>
+document.body.classList.add('personal-route-body','journal-route-body'); const savedFont=localStorage.getItem('openroad_journal_font')||'14'; document.documentElement.style.setProperty('--journal-reader-size',savedFont+'px'); const savedBg=localStorage.getItem('openroad_journal_bg'); if(savedBg) document.documentElement.style.setProperty('--journal-bg-image',`url(${savedBg})`);
+(function(){
+ const editor=document.getElementById('journalPageEditor'); if(!editor)return;
+ const source=(document.getElementById('legacyBody')?.value||'').trim(); const titles=['morning','midday','evening']; let activeMood=document.querySelector('.mood-chip.active')?.dataset.mood||'morning'; let pages=[source]; let page=0;
+ const maxChars=1250;
+ function renderPage(){ editor.innerText=pages[page]||''; editor.focus(); const c=document.getElementById('pageCounter'); if(c)c.textContent='Page '+(page+1)+' / '+pages.length; }
+ function rebalance(){ let text=editor.innerText.replace(/\u00a0/g,' '); if(text.length>maxChars){ pages[page]=text.slice(0,maxChars); const rest=text.slice(maxChars); pages.splice(page+1,0,rest); page++; renderPage(); return; } pages[page]=text; document.getElementById('pageCounter').textContent='Page '+(page+1)+' / '+pages.length; }
+ window.setActiveMood=function(m){activeMood=m; document.querySelectorAll('.mood-chip').forEach(b=>b.classList.toggle('active',b.dataset.mood===m)); const sel=document.querySelector('.journal-mood-select'); if(sel)sel.value=m; editor?.focus();}
+ window.toggleEmoji=function(){document.getElementById('emojiPalette')?.classList.toggle('open')}; window.insertEmoji=function(e){editor?.focus();document.execCommand('insertText',false,e);rebalance();document.getElementById('emojiPalette')?.classList.remove('open')}; window.addMoodDivider=function(){ if(!editor)return; rebalance(); pages[page]=(pages[page]||'')+'\n\n—— '+activeMood.toUpperCase()+' ——\n\n'; renderPage(); }
+ document.querySelectorAll('.mood-chip').forEach(b=>b.addEventListener('click',()=>setActiveMood(b.dataset.mood)));
+ editor.addEventListener('input',rebalance); editor.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();if(page<pages.length-1){page++;renderPage();}}});
+ document.getElementById('journalForm')?.addEventListener('submit',()=>{rebalance(); document.getElementById('legacyBody').value=pages.join('\n\n'); document.getElementById('segmentsJson').value=JSON.stringify(pages.map((body,i)=>({time:i===0?activeMood:'',body})));});
+ renderPage();
+})();
+(function(){const r=document.getElementById('journalReader');if(!r)return;const raw=r.dataset.body||'';const text=document.getElementById('readText'),next=document.getElementById('nextPage'),prev=document.getElementById('prevPage'),prog=document.getElementById('readProgress');let pages=[],page=0;function split(){const words=raw.split(/\s+/),chunks=[];let cur='';for(const w of words){const t=(cur+' '+w).trim();if(t.length>1100){chunks.push(cur);cur=w}else cur=t}if(cur)chunks.push(cur);pages=chunks.length?chunks:[''];page=Math.min(page,pages.length-1);paint()}function paint(){text.textContent=pages[page]||'';prog.textContent=(page+1)+' / '+pages.length;prev.disabled=page===0;next.disabled=page===pages.length-1}function turn(d){if((d<0&&page===0)||(d>0&&page===pages.length-1))return;document.getElementById('readPage').classList.add(d>0?'flip-left':'flip-right');setTimeout(()=>{page+=d;paint();document.getElementById('readPage').className='journal-book-page'},160)}next.onclick=()=>turn(1);prev.onclick=()=>turn(-1);let sx=0,sy=0;document.getElementById('readPage').addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});document.getElementById('readPage').addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)){turn(dx<0?1:-1)}},{passive:true});addEventListener('keydown',e=>{if(e.key==='ArrowLeft')turn(-1);if(e.key==='ArrowRight')turn(1)});split()})();
 </script>{% endblock %}

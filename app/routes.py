@@ -753,7 +753,18 @@ def _stuff_colors():
     return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white']
 
 def _journal_moods():
-    return ['thoughts', 'grateful', 'happy', 'calm', 'excited', 'sad', 'angry', 'hopeful', 'proud', 'tired']
+    return ['morning', 'midday', 'evening']
+
+def _journal_secret_set(user):
+    return bool(user['journal_secret_hash'])
+
+def _journal_unlocked(user):
+    return not _journal_secret_set(user) or session.get('journal_unlocked_user') == user['id']
+
+def _journal_require_unlock(user):
+    if _journal_unlocked(user):
+        return None
+    return render_template('journal_lock.html')
 
 def _journal_excerpt(body, limit=190):
     text=re.sub(r'\s+', ' ', (body or '')).strip()
@@ -807,6 +818,8 @@ def my_stuff():
 @bp.get('/my-stuff/journal')
 def my_stuff_journal():
     user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     user=_stuff_use_and_context(user,'stuff_journal_uses')
     view=request.args.get('view','active').strip().lower()
     if view not in {'active','archived'}: view='active'
@@ -816,7 +829,36 @@ def my_stuff_journal():
     entry=None
     if selected.isdigit():
         entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
-    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode)
+    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user))
+
+@bp.get('/my-stuff/journal/settings')
+def my_stuff_journal_settings():
+    user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    return render_template('journal_settings.html', journal_secret_set=_journal_secret_set(user), simple_id_exists=_stuff_id_ready(user))
+
+@bp.post('/my-stuff/journal/settings')
+def my_stuff_journal_settings_save():
+    user=_current_user_for_stuff()
+    action=request.form.get('action','').strip()
+    db=get_db()
+    if action=='set-secret':
+        value=request.form.get('secret_id','').strip()
+        if not re.fullmatch(r'[A-Za-z0-9]{4,12}', value):
+            flash('Use 4–12 letters or numbers for your Journal secret.','error')
+        else:
+            db.execute('UPDATE users SET journal_secret_hash=? WHERE id=?',(hash_pin(value),user['id'])); db.commit(); session['journal_unlocked_user']=user['id']; flash('Journal secret is active. It protects Journal only.','success')
+    elif action=='remove-secret':
+        db.execute('UPDATE users SET journal_secret_hash=NULL WHERE id=?',(user['id'],)); db.commit(); session.pop('journal_unlocked_user',None); flash('Journal secret removed.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/journal/unlock')
+def my_stuff_journal_unlock():
+    user=_current_user_for_stuff(); value=request.form.get('secret_id','').strip()
+    if _journal_secret_set(user) and verify_pin(user['journal_secret_hash'], value):
+        session['journal_unlocked_user']=user['id']; return redirect(url_for('public.my_stuff_journal'))
+    flash('That Journal secret is not correct.','error'); return redirect(url_for('public.my_stuff_journal'))
 
 @bp.post('/my-stuff/id')
 def my_stuff_id():
@@ -839,9 +881,11 @@ def my_stuff_id():
 def my_stuff_journal_save():
     user=_current_user_for_stuff()
     if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     db=get_db(); entry_id=request.form.get('entry_id','').strip(); title=request.form.get('title','').strip()[:140]
-    body=request.form.get('body','').strip(); mood=request.form.get('mood','thoughts').strip().lower(); tags=request.form.get('tags','').strip()[:240]; cover_color=request.form.get('cover_color','cream').strip().lower()
-    if mood not in _journal_moods(): mood='thoughts'
+    body=request.form.get('body','').strip(); mood=request.form.get('mood','morning').strip().lower(); segments_json=request.form.get('segments_json','').strip(); tags=request.form.get('tags','').strip()[:240]; cover_color=request.form.get('cover_color','cream').strip().lower()
+    if mood not in _journal_moods(): mood='morning'
     if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
     clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
     if not title or not body:
@@ -849,22 +893,25 @@ def my_stuff_journal_save():
     if entry_id:
         owned=db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
         if not owned: abort(404)
-        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,updated_at=? WHERE id=? AND user_id=?',(title,body,mood,clean_tags,cover_color,now(),entry_id,user['id'])); saved_id=int(entry_id); msg='Journal story updated.'
+        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,segments_json=?,updated_at=? WHERE id=? AND user_id=?',(title,body,mood,clean_tags,cover_color,segments_json,now(),entry_id,user['id'])); saved_id=int(entry_id); msg='Journal story updated.'
     else:
-        cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',(user['id'],title,body,mood,clean_tags,cover_color,now(),now())); saved_id=cur.lastrowid; msg='Journal story saved.'
+        cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',(user['id'],title,body,mood,clean_tags,cover_color,segments_json,now(),now())); saved_id=cur.lastrowid; msg='Journal story saved.'
     db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_journal',entry=saved_id))
 
 @bp.get('/my-stuff/journal/<int:entry_id>')
 def my_stuff_journal_view(entry_id):
-    user=_current_user_for_stuff()
-    row=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    user=_current_user_for_stuff(); blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    row=get_db().execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
     if not row: abort(404)
-    return render_template('journal_entry.html',entry=row,moods=_journal_moods(),edit=request.args.get('edit')=='1')
+    return redirect(url_for('public.my_stuff_journal', entry=entry_id, edit='1' if request.args.get('edit')=='1' else None))
 
 @bp.post('/my-stuff/journal/<int:entry_id>/favorite')
 def my_stuff_journal_favorite(entry_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     db=get_db(); row=db.execute('SELECT favorite FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
     if not row: abort(404)
     db.execute('UPDATE journal_entries SET favorite=? WHERE id=? AND user_id=?',(0 if row['favorite'] else 1,entry_id,user['id'])); db.commit()
@@ -874,6 +921,8 @@ def my_stuff_journal_favorite(entry_id):
 def my_stuff_journal_archive(entry_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     db=get_db(); row=db.execute('SELECT archived FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
     if not row: abort(404)
     db.execute('UPDATE journal_entries SET archived=? WHERE id=? AND user_id=?',(0 if row['archived'] else 1,entry_id,user['id'])); db.commit(); flash('Journal story updated.','success')
@@ -883,6 +932,8 @@ def my_stuff_journal_archive(entry_id):
 def my_stuff_journal_delete(entry_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
     db=get_db(); cur=db.execute('DELETE FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
     if not cur.rowcount: abort(404)
     flash('Journal story deleted.','success'); return redirect(url_for('public.my_stuff_journal'))
@@ -1099,7 +1150,9 @@ def my_stuff_edits_studio():
     user=_current_user_for_stuff()
     user=_stuff_use_and_context(user,'stuff_edits_uses')
     images=get_db().execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
-    return render_template('my_edits_studio.html',user=user,images=images,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_edits_uses'] or 0))
+    selected_id=request.args.get('image','').strip()
+    selected_image=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(int(selected_id),user['id'])).fetchone() if selected_id.isdigit() else None
+    return render_template('my_edits_studio.html',user=user,images=images,selected_image=selected_image,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_edits_uses'] or 0))
 
 @bp.post('/my-stuff/image')
 def my_stuff_image_upload():
@@ -1108,6 +1161,7 @@ def my_stuff_image_upload():
     f=request.files.get('image'); operation=request.form.get('operation','clean')
     if not f or not f.filename: flash('Choose an image first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
     if operation not in {'clean','grayscale','web'}: operation='clean'
+    new_id=None
     try:
         from PIL import Image, ImageOps
         raw=f.read(); from io import BytesIO
@@ -1117,7 +1171,7 @@ def my_stuff_image_upload():
         out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id'])); os.makedirs(stuff_dir,exist_ok=True); out_path=os.path.join(stuff_dir,out_name); source.save(out_path,'JPEG',quality=91,optimize=True)
         logical=os.path.join('stuff',str(user['id']),out_name); db=get_db(); db.execute('INSERT INTO stuff_images(user_id,original_name,filename,operation,created_at) VALUES(?,?,?,?,?)',(user['id'],f.filename,logical,operation,now())); db.commit(); flash('Image processed. Metadata has been removed from the new file.','success')
     except Exception: flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
-    return redirect(url_for('public.my_stuff_edits_studio'))
+    return redirect(url_for('public.my_stuff_edits_studio', image=int(new_id)) if new_id else url_for('public.my_stuff_edits_studio'))
 
 @bp.get('/my-stuff/image/<int:image_id>')
 def my_stuff_image(image_id):

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL,
  email TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, recovery_question TEXT NOT NULL,
  recovery_answer_hash TEXT NOT NULL, remember_token TEXT, remember_until TEXT,
- deleted_at TEXT, simple_id_hash TEXT, is_stuff_guest INTEGER NOT NULL DEFAULT 0, journal_card_uses INTEGER NOT NULL DEFAULT 0, stuff_journal_uses INTEGER NOT NULL DEFAULT 0, stuff_copy_uses INTEGER NOT NULL DEFAULT 0, stuff_edits_uses INTEGER NOT NULL DEFAULT 0, stuff_card_uses INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+ deleted_at TEXT, simple_id_hash TEXT, is_stuff_guest INTEGER NOT NULL DEFAULT 0, journal_card_uses INTEGER NOT NULL DEFAULT 0, stuff_journal_uses INTEGER NOT NULL DEFAULT 0, stuff_copy_uses INTEGER NOT NULL DEFAULT 0, stuff_edits_uses INTEGER NOT NULL DEFAULT 0, stuff_card_uses INTEGER NOT NULL DEFAULT 0, journal_secret_hash TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trips (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
  mood TEXT NOT NULL DEFAULT 'thoughts',
  tags TEXT DEFAULT '',
  cover_color TEXT NOT NULL DEFAULT 'cream',
+ segments_json TEXT DEFAULT '',
  favorite INTEGER NOT NULL DEFAULT 0,
  archived INTEGER NOT NULL DEFAULT 0,
  created_at TEXT NOT NULL,
@@ -259,6 +260,7 @@ def init_db(app):
                 'stuff_copy_uses': 'ALTER TABLE users ADD COLUMN stuff_copy_uses INTEGER NOT NULL DEFAULT 0',
                 'stuff_edits_uses': 'ALTER TABLE users ADD COLUMN stuff_edits_uses INTEGER NOT NULL DEFAULT 0',
                 'stuff_card_uses': 'ALTER TABLE users ADD COLUMN stuff_card_uses INTEGER NOT NULL DEFAULT 0',
+                'journal_secret_hash': 'ALTER TABLE users ADD COLUMN journal_secret_hash TEXT',
             },
             'bookings': {
                 'payment_method': "ALTER TABLE bookings ADD COLUMN payment_method TEXT DEFAULT ''",
@@ -285,6 +287,9 @@ def init_db(app):
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
+
+        if 'segments_json' not in _column_names(db, 'journal_entries'):
+            db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
 
         import secrets
         # Backfill scanner/access identifiers on databases created by earlier builds.
