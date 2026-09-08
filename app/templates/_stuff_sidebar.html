@@ -1,0 +1,12 @@
+<aside class="personal-sidebar">
+  <a class="personal-back" href="{{ url_for('public.my_stuff') }}">← My Stuff</a>
+  <div class="personal-brand"><span class="eyebrow">OPEN ROAD</span><strong>{{ title }}</strong><small>{{ subtitle }}</small></div>
+  <div class="personal-id-box {{ 'ready' if simple_id_exists else '' }}">
+    <span class="eyebrow">OPEN ROAD ID</span>
+    {% if simple_id_exists %}<strong>Active</strong><small>Your one app ID works here and everywhere else.</small>{% else %}<strong>Not set</strong><small>Optional. You can start without it.</small>{% endif %}
+    {% if not simple_id_exists %}<button class="side-link" type="button" onclick="document.getElementById('idPanel').showModal()">Create ID</button>{% endif %}
+  </div>
+  {{ sidebar_body|safe }}
+  <div class="personal-sidebar-foot">Private to your account · works best installed as the app.</div>
+</aside>
+{% if not simple_id_exists %}<dialog id="idPanel" class="id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="{{ id_next }}"><div class="eyebrow">ONE ID FOR OPEN ROAD</div><h2>Use one simple ID everywhere.</h2><p>Create it here when you feel ready. You do not need to create another ID for another tool.</p><label>Your ID<input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" placeholder="e.g. ROAD26" required></label><div class="button-row"><button class="button secondary" type="button" onclick="this.closest('dialog').close()">Not now</button><button class="button primary">Create ID</button></div></form></dialog>{% endif %}

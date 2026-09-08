@@ -1,4 +1,4 @@
-const CACHE = 'open-road-pwa-v7';
+const CACHE = 'open-road-pwa-v10';
 const CORE = [
   '/',
   '/offline',
