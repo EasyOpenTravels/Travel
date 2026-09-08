@@ -6,7 +6,7 @@
 <link rel="manifest" href="{{ url_for('public.manifest') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"><title>{{ config.BRAND_NAME }}</title>
 </head>
-<body>
+<body class="{% if request.path.startswith('/my-stuff') %}personal-route{% endif %}">
 <header class="topbar">
   <button class="menu-button" type="button" aria-label="Open menu" aria-expanded="false" onclick="toggleRoadMenu()"><span></span><span></span><span></span></button>
   <a class="brand" href="{{ url_for('public.home') }}"><span class="brand-mark">OR</span><span>OPEN ROAD</span></a>

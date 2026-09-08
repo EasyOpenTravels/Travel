@@ -1,10 +1,8 @@
 {% extends 'base.html' %}{% block content %}
-<section class="stuff-door">
-  <div class="stuff-door-head"><a class="back-link" href="{{ url_for('public.home') }}">← Back</a><div class="eyebrow">MY STUFF</div><h1>Your three personal spaces.</h1><p>Choose one. Each opens as its own clean workspace.</p></div>
-  <div class="stuff-door-grid">
-    <a class="choice-card lime stuff-door-card" href="{{ url_for('public.my_stuff_journal') }}"><span>01</span><div><h2>My Journal</h2><p>Private memories, stories, colourful cards and folders.</p><b>Open journal →</b></div></a>
-    <a class="choice-card aqua stuff-door-card" href="{{ url_for('public.my_stuff_copy_paste') }}"><span>02</span><div><h2>My Copy & Paste</h2><p>Keep long numbers, Till numbers, Paybills and codes ready.</p><b>Open copy & paste →</b></div></a>
-    <a class="choice-card orange stuff-door-card" href="{{ url_for('public.my_stuff_edits_studio') }}"><span>03</span><div><h2>My Edits Studio</h2><p>Clean, transform, resize and prepare your images.</p><b>Open edits studio →</b></div></a>
-  </div>
+<section class="stuff-door-only">
+  <a class="stuff-door-choice stuff-door-journal" href="{{ url_for('public.my_stuff_journal') }}"><span>01</span><strong>My Journal</strong><small>Your private stories, memories and reading space.</small></a>
+  <a class="stuff-door-choice stuff-door-copy" href="{{ url_for('public.my_stuff_copy_paste') }}"><span>02</span><strong>My Copy & Paste</strong><small>Long numbers and codes, ready when you need them.</small></a>
+  <a class="stuff-door-choice stuff-door-studio" href="{{ url_for('public.my_stuff_edits_studio') }}"><span>03</span><strong>My Edits Studio</strong><small>A clean image desk for useful edits.</small></a>
 </section>
 {% endblock %}
+{% block scripts %}<script>document.body.classList.add('stuff-door-body');</script>{% endblock %}

@@ -753,6 +753,10 @@ def _stuff_redirect(section='journal'):
 def _stuff_id_ready(user):
     return bool(_global_simple_id_hash(user))
 
+def _cards_allowed(user):
+    return _stuff_id_ready(user) or int(user['stuff_card_uses'] or 0) <= 5
+
+
 def _stuff_use_and_context(user, column):
     db=get_db()
     db.execute(f"UPDATE users SET {column}=COALESCE({column},0)+1 WHERE id=?", (user['id'],))
@@ -787,11 +791,12 @@ def my_stuff_journal():
     view=request.args.get('view','active').strip().lower()
     if view not in {'active','archived'}: view='active'
     selected=request.args.get('entry','').strip()
-    journals,count,archived_count,cards=_journal_sidebar_data(user,view)
+    edit_mode=request.args.get('edit')=='1' or request.args.get('write')=='1'
+    journals,count,archived_count,_cards=_journal_sidebar_data(user,view)
     entry=None
     if selected.isdigit():
         entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
-    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),card_uses=int(user['journal_card_uses'] or 0),cards=cards)
+    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode)
 
 @bp.post('/my-stuff/id')
 def my_stuff_id():
@@ -799,7 +804,7 @@ def my_stuff_id():
     if not user: abort(403)
     value=request.form.get('simple_id','').strip()
     nxt=request.form.get('next','journal').strip().lower()
-    destinations={'journal':'public.my_stuff_journal','copy-paste':'public.my_stuff_copy_paste','edits-studio':'public.my_stuff_edits_studio'}
+    destinations={'journal':'public.my_stuff_journal','cards':'public.my_stuff_cards','copy-paste':'public.my_stuff_copy_paste','edits-studio':'public.my_stuff_edits_studio'}
     if not re.fullmatch(r'[A-Za-z0-9]{4,8}',value):
         flash('Choose a simple 4–8 character ID using letters and numbers.','error')
     elif _global_simple_id_hash(user):
@@ -884,19 +889,35 @@ def my_stuff_folder_delete(folder_id):
     db=get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])); db.commit(); flash('Folder deleted.','success')
     return redirect(url_for('public.my_stuff_journal'))
 
+@bp.get('/my-stuff/cards')
+def my_stuff_cards():
+    user=_current_user_for_stuff()
+    if not user: return redirect(url_for('public.login', next=request.full_path))
+    user=_stuff_use_and_context(user,'stuff_card_uses')
+    use_count=int(user['stuff_card_uses'] or 0)
+    has_id=_stuff_id_ready(user)
+    if not has_id and use_count > 5:
+        return render_template('my_cards.html',user=user,cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall(),folders=get_db().execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall(),card_locked=True,card_use_count=use_count,simple_id_exists=False)
+    db=get_db()
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    folders=db.execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall()
+    return render_template('my_cards.html',user=user,cards=cards,folders=folders,card_locked=False,card_use_count=use_count,simple_id_exists=has_id)
+
 @bp.post('/my-stuff/card/save')
 def my_stuff_card_save():
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if not _cards_allowed(user):
+        flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
     db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
     if color not in _stuff_colors(): color='lime'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
-    if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_journal'))
+    if not title or not body: flash('Give the card a title and something to keep on it.','error'); return redirect(url_for('public.my_stuff_cards'))
     if card_id:
         db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,now(),card_id,user['id'])); msg='Card updated.'
     else:
-        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,now(),now())); db.execute('UPDATE users SET journal_card_uses=COALESCE(journal_card_uses,0)+1 WHERE id=?',(user['id'],)); msg='Card saved.'
-    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_journal'))
+        db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,now(),now())); msg='Card saved.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_cards'))
 
 
 
@@ -1000,6 +1021,7 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
 def my_stuff_card_download(card_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
     row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
     if not row: abort(404)
     style=request.args.get('style','sunrise').strip().lower()
@@ -1021,11 +1043,12 @@ def my_stuff_card_download(card_id):
 def my_stuff_card_delete(card_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
     db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
     if row and row['image_filename']:
         try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['image_filename']))
         except OSError: pass
-    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff_journal'))
+    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff_cards'))
 
 @bp.get('/my-stuff/copy-paste')
 def my_stuff_copy_paste():
