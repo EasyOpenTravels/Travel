@@ -1,0 +1,8 @@
+{% extends 'admin_base.html' %}{% block content %}
+<section class="admin-wrap"><div class="admin-hero"><div><div class="eyebrow">PROTECTED</div><h1>Payment Control.</h1><p>Private payment configuration. This area is separate from the payment ledger.</p></div></div>
+{% if first_setup %}
+<form class="admin-panel" method="post"><input type="hidden" name="section" value="setup_password"><div class="panel-head"><div><span class="eyebrow">FIRST SETUP</span><h2>Create your private password</h2></div><button class="button primary small">Protect Payment Control</button></div><div class="field-grid"><label>Payment Control password<input name="payment_control_password" type="password" minlength="14" autocomplete="new-password" required></label><label>Confirm password<input name="payment_control_password_confirm" type="password" minlength="14" autocomplete="new-password" required></label></div><p class="micro">Use a long password you do not use elsewhere. This password is separate from the main administrator password.</p></form>
+{% else %}
+<form class="admin-panel" method="post"><input type="hidden" name="section" value="unlock"><div class="panel-head"><div><span class="eyebrow">LOCKED</span><h2>Unlock Payment Control</h2></div><button class="button primary small">Unlock</button></div><label>Payment Control password<input name="payment_control_password" type="password" autocomplete="current-password" required></label></form>
+{% endif %}
+</section>{% endblock %}

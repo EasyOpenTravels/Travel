@@ -2,6 +2,7 @@ import os, re, shutil, sqlite3, hmac, secrets, zipfile, pathlib
 from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from .db import get_db,SCHEMA
 from .security import now, encrypt_secret, decrypt_secret
 from .qr import make_qr_bytes
@@ -136,11 +137,42 @@ def service_request_status(request_id):
     if status not in ('new','contacted','planning','complete','closed'): abort(400)
     db=get_db(); db.execute('UPDATE service_requests SET status=? WHERE id=?',(status,request_id)); db.commit(); flash('Service request updated.','success'); return redirect(url_for('admin.service_requests'))
 
-@admin_bp.route('/payment-settings', methods=['GET','POST'])
-def payment_settings():
+def _payment_control_hash(db):
+    row=db.execute("SELECT value FROM settings WHERE key='payment_control_password_hash'").fetchone()
+    return row['value'] if row else ''
+
+
+def _payment_control_auth_required():
+    return not bool(session.get('payment_control_auth'))
+
+
+@admin_bp.route('/payment-control', methods=['GET','POST'])
+def payment_control():
     gate=guard()
     if gate:return gate
     db=get_db()
+    stored_hash=_payment_control_hash(db)
+    if not stored_hash:
+        if request.method=='POST' and request.form.get('section')=='setup_password':
+            pw=request.form.get('payment_control_password','')
+            confirm=request.form.get('payment_control_password_confirm','')
+            if len(pw) < 14 or pw != confirm:
+                flash('Use a matching payment-control password of at least 14 characters.','error')
+                return redirect(url_for('admin.payment_control'))
+            db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('payment_control_password_hash',?)",(generate_password_hash(pw),))
+            db.commit(); session['payment_control_auth']=True
+            flash('Payment Control is protected.','success')
+            return redirect(url_for('admin.payment_control'))
+        return render_template('admin_payment_gate.html', first_setup=True)
+    if _payment_control_auth_required():
+        if request.method=='POST' and request.form.get('section')=='unlock':
+            pw=request.form.get('payment_control_password','')
+            if check_password_hash(stored_hash,pw):
+                session['payment_control_auth']=True
+                return redirect(url_for('admin.payment_control'))
+            flash('Payment Control password is incorrect.','error')
+        return render_template('admin_payment_gate.html', first_setup=False)
+
     secret_fields=['mpesa_consumer_key','mpesa_consumer_secret','mpesa_passkey','mpesa_callback_token']
     if request.method=='POST':
         section=request.form.get('section','collection')
@@ -157,13 +189,37 @@ def payment_settings():
             except ValueError: fee=5.0
             db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',('ticketing_fee_percent',str(fee)))
             db.commit(); flash('Collection settings saved.','success')
+        elif section=='change_password':
+            current=request.form.get('current_password','')
+            new=request.form.get('new_password','')
+            confirm=request.form.get('new_password_confirm','')
+            if not check_password_hash(stored_hash,current):
+                flash('Current payment-control password is incorrect.','error')
+            elif len(new)<14 or new!=confirm:
+                flash('Use a matching password of at least 14 characters.','error')
+            else:
+                db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('payment_control_password_hash',?)",(generate_password_hash(new),)); db.commit(); session['payment_control_auth']=True; flash('Payment Control password changed.','success')
+        elif section=='delete_configuration':
+            pw=request.form.get('delete_password','')
+            if not check_password_hash(stored_hash,pw):
+                flash('Payment Control password is required to remove payment configuration.','error')
+            else:
+                keys=secret_fields+['payment_till','payment_paybill','payment_name','payment_business_shortcode','payment_transaction_type','payment_currency','ticketing_fee_percent']
+                db.execute("DELETE FROM settings WHERE key IN (%s)" % ','.join('?'*len(keys)), keys)
+                db.commit(); session.pop('payment_control_auth',None)
+                flash('Payment configuration removed. Existing confirmed payments remain in the ledger.','success')
         else:
             abort(400)
-        return redirect(url_for('admin.payment_settings'))
+        return redirect(url_for('admin.payment_control'))
     vals={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
     states={k:bool(decrypt_secret(vals.get(k,''))) for k in secret_fields}
     from .payments import mpesa_configured
     return render_template('admin_payment_settings.html',settings=vals,secret_state=states,mpesa_ready=mpesa_configured(),callback_url=payment_callback_url())
+
+
+@admin_bp.route('/payment-settings', methods=['GET','POST'])
+def payment_settings():
+    return redirect(url_for('admin.payment_control'))
 
 @admin_bp.post('/settings')
 def settings():
