@@ -1123,7 +1123,7 @@ def my_stuff_card_delete(card_id):
 def my_stuff_copy_paste():
     user=_current_user_for_stuff()
     user=_stuff_use_and_context(user,'stuff_copy_uses')
-    db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? AND id IN (SELECT MAX(id) FROM saved_copies WHERE user_id=? GROUP BY label,value) ORDER BY updated_at DESC,id DESC',(user['id'],user['id'])).fetchall()
     edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
     return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_copy_uses'] or 0))
 
@@ -1136,7 +1136,11 @@ def my_stuff_copy_save():
     if item_id:
         db.execute('UPDATE saved_copies SET label=?,value=?,note=?,updated_at=? WHERE id=? AND user_id=?',(label,value,note,now(),item_id,user['id'])); msg='Saved item updated.'
     else:
-        db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now())); msg='Saved to Copy & Paste.'
+        existing=db.execute('SELECT id FROM saved_copies WHERE user_id=? AND label=? AND value=? ORDER BY id DESC LIMIT 1',(user['id'],label,value)).fetchone()
+        if existing:
+            db.execute('UPDATE saved_copies SET note=?,updated_at=? WHERE id=? AND user_id=?',(note,now(),existing['id'],user['id'])); msg='Already saved — updated.'
+        else:
+            db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now())); msg='Saved to Copy & Paste.'
     db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_copy_paste'))
 
 @bp.post('/my-stuff/copy/<int:item_id>/delete')
