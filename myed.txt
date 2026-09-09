@@ -25,7 +25,7 @@
       </section>
       <form class="myed-compose" id="myedForm" method="post" action="{{ url_for('public.my_stuff_card_save') }}">
         <input type="hidden" name="card_id" id="myedCardId"><input type="hidden" name="title" id="myedTitle"><input type="hidden" name="color" id="myedColor"><input type="hidden" name="font_style" id="myedFont"><input type="hidden" name="shape_style" id="myedShape"><input type="hidden" name="design_style" id="myedDesign" value="sunny"><input type="hidden" name="qr_enabled" value="1"><input type="hidden" name="signature_enabled" id="myedSig"><input type="hidden" name="decoration" id="myedDecoration"><input type="hidden" name="after_save" id="myedAfter">
-        <div class="myed-actions"><button type="button" onclick="newMyEdits()">Clear</button><button type="button" class="save" onclick="saveMyEdits('stay')">Save</button><button type="button" class="png" onclick="saveMyEdits('png')">Save + PNG</button></div><div class="myed-inputrow"><textarea id="myedBody" name="body" maxlength="420" required placeholder="Write something nice…"></textarea></div><div class="myed-compose-note">Your words become the card. The tiny QR is always included; the Open Road footer is optional.</div>
+        <div class="myed-actions"><button type="button" class="save" onclick="saveMyEdits('stay')">Save</button><button type="button" class="png" onclick="saveMyEdits('png')">Save + PNG</button></div><div class="myed-inputrow"><textarea id="myedBody" name="body" maxlength="420" required placeholder="Write something nice…"></textarea></div><div class="myed-compose-note">Your words become the card. The tiny QR is always included; the Open Road footer is optional.</div>
       </form>
       {% endif %}
     </main>
