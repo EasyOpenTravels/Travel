@@ -29,12 +29,14 @@
     <section class="cc-workspace">
       <div class="cc-preview-panel">
         <div class="cc-live-head"><span>LIVE PREVIEW</span><span id="ccState">Ready</span></div>
-        <div id="ccPreview" class="cc-card yellow bold sticky sunny solid left classic texture-none">
-          <h3 id="ccTitleOut">Your little idea</h3>
-          <p id="ccBodyOut">Write something worth keeping.</p>
-          <div id="ccAccentOut" class="cc-accent">✦</div>
-          <div class="cc-brand" aria-hidden="true">OPEN ROAD ADVENTURES</div>
-          <div class="cc-qr"><img src="data:image/png;base64,{{ qr_b64 }}" alt="QR code linking to this site"></div>
+        <div class="cc-preview-stage" aria-label="Card preview area">
+          <div id="ccPreview" class="cc-card yellow bold sticky sunny solid left classic texture-none">
+            <h3 id="ccTitleOut">Your little idea</h3>
+            <p id="ccBodyOut">Write something worth keeping.</p>
+            <div id="ccAccentOut" class="cc-accent">✦</div>
+            <div class="cc-brand" aria-hidden="true">OPEN ROAD ADVENTURES</div>
+            <div class="cc-qr"><img src="data:image/png;base64,{{ qr_b64 }}" alt="QR code linking to this site"></div>
+          </div>
         </div>
         <div class="cc-preview-actions"><button type="button" onclick="ccSave('save')" class="primary">Save</button><button type="button" onclick="ccSave('png')" class="secondary">Save + PNG</button></div>
       </div>
