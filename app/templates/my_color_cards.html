@@ -1,0 +1,106 @@
+{% extends 'base.html' %}{% block content %}
+<div class="color-cards-app">
+  <header class="cc-top">
+    <a href="{{ url_for('public.my_stuff') }}" class="cc-back">My Stuff</a>
+    <div class="cc-title"><span>MY LITTLE DESIGN SPACE</span><h1>My Color Cards</h1></div>
+    <button type="button" class="cc-menu" onclick="document.body.classList.toggle('cc-drawer-open')">Saved</button>
+  </header>
+
+  <aside class="cc-drawer" aria-label="Saved color cards">
+    <div class="cc-drawer-head"><div><span>YOUR CARDS</span><strong>{{ cards|length }}</strong></div><button type="button" onclick="document.body.classList.remove('cc-drawer-open')">×</button></div>
+    <button class="cc-new" type="button" onclick="ccNew()">＋ New card</button>
+    <div class="cc-saved-list">
+      {% for c in cards %}
+      <article class="cc-saved {{ c.color }}">
+        <button class="cc-saved-open" type="button" onclick="ccLoad({{ c.id }},{{ c.title|tojson }},{{ c.body|tojson }},'{{ c.color }}','{{ c.font_style if 'font_style' in c.keys() else 'bold' }}','{{ c.shape_style if 'shape_style' in c.keys() else 'sticky' }}','{{ c.design_style if 'design_style' in c.keys() else 'sunny' }}','{{ c.background_style if 'background_style' in c.keys() else 'solid' }}','{{ c.decoration if 'decoration' in c.keys() else 'spark' }}','{{ c.custom_bg if 'custom_bg' in c.keys() else '' }}','{{ c.custom_text if 'custom_text' in c.keys() else '' }}','{{ c.accent_color if 'accent_color' in c.keys() else '' }}','{{ c.text_align if 'text_align' in c.keys() else 'left' }}','{{ c.font_scale if 'font_scale' in c.keys() else '100' }}','{{ c.border_style if 'border_style' in c.keys() else 'classic' }}','{{ c.texture_style if 'texture_style' in c.keys() else 'none' }}')"><i></i><span>{{ c.title or 'Untitled card' }}</span></button>
+        <div class="cc-saved-actions"><a href="{{ url_for('public.my_stuff_card_download',card_id=c.id) }}" title="Download PNG">PNG</a><form method="post" action="{{ url_for('public.my_stuff_color_card_delete',card_id=c.id) }}"><button type="submit" title="Delete">×</button></form></div>
+      </article>
+      {% else %}<div class="cc-empty">Your saved cards will live here.</div>{% endfor %}
+    </div>
+  </aside>
+
+  <main class="cc-main">
+    {% if card_locked %}<section class="cc-lock"><div class="cc-lock-mark">✦</div><span>MY COLOR CARDS</span><h2>Keep your little design space yours.</h2><p>You have made a few cards already. Create your Open Road ID once and keep making them without losing the cards you already have.</p><button type="button" onclick="document.getElementById('ccIdPanel').showModal()">Create Open Road ID</button></section>{% else %}
+    <section class="cc-hero">
+      <div><span class="eyebrow">A CARD THAT FEELS LIKE YOU</span><h2>Make something bright, soft, bold or beautifully weird.</h2><p>Everything updates live. Nothing gets trapped behind a stiff control panel.</p></div>
+      <button type="button" class="cc-surprise" onclick="ccSurprise()">Surprise me ✦</button>
+    </section>
+
+    <section class="cc-workspace">
+      <div class="cc-preview-panel">
+        <div class="cc-live-head"><span>LIVE PREVIEW</span><span id="ccState">Ready</span></div>
+        <div id="ccPreview" class="cc-card yellow bold sticky sunny solid left classic texture-none">
+          <div class="cc-kicker">OPEN ROAD · LITTLE THING</div>
+          <h3 id="ccTitleOut">Your little idea</h3>
+          <p id="ccBodyOut">Write something worth keeping.</p>
+          <div id="ccAccentOut" class="cc-accent">✦</div>
+          <div class="cc-brand">OPEN ROAD ADVENTURES</div>
+          <div class="cc-qr">QR</div>
+        </div>
+        <div class="cc-preview-actions"><button type="button" onclick="ccSave('save')" class="primary">Save</button><button type="button" onclick="ccSave('png')" class="secondary">Save + PNG</button></div>
+      </div>
+
+      <form id="ccForm" class="cc-controls" method="post" action="{{ url_for('public.my_stuff_color_card_save') }}" onsubmit="return false">
+        <input type="hidden" id="ccId" name="card_id">
+        <div class="cc-textbox">
+          <div class="cc-section-head"><div><span>WORDS</span><strong>Say the thing.</strong></div><div class="cc-mode"><button type="button" class="active" data-cc-mode="topic" onclick="ccMode('topic')">Topic</button><button type="button" data-cc-mode="body" onclick="ccMode('body')">Body</button></div></div>
+          <textarea id="ccText" maxlength="520" placeholder="Write the topic / big line…"></textarea>
+          <div class="cc-text-hint"><span id="ccWordState">0 characters</span><span>Topic and Body stay separate.</span></div>
+        </div>
+
+        <div class="cc-tool-grid">
+          <details open><summary>Colour & Shape <span>tap to open</span></summary><div class="cc-detail">
+            <div class="cc-field"><label>Card colour</label><div class="cc-swatches">{% for c in ['yellow','blue','pink','aqua','lime','orange','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'] %}<button type="button" class="cc-swatch {{ c }}" data-color="{{ c }}" onclick="ccSet('color','{{ c }}')" aria-label="{{ c }}"></button>{% endfor %}</div></div>
+            <div class="cc-field"><label>Shape</label><div class="cc-chips">{% for s in ['sticky','rounded','cloud','ticket','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'] %}<button type="button" class="cc-chip" data-shape="{{ s }}" onclick="ccSet('shape','{{ s }}')">{{ s|replace('ticketwide','ticket wide')|replace('softbox','soft box')|title }}</button>{% endfor %}</div></div>
+          </div></details>
+
+          <details><summary>Background <span>make the card feel different</span></summary><div class="cc-detail">
+            <div class="cc-field"><label>Background style</label><div class="cc-chips">{% for b in ['solid','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'] %}<button type="button" class="cc-chip" data-bg="{{ b }}" onclick="ccSet('background','{{ b }}')">{{ b|replace('mintwash','mint wash')|title }}</button>{% endfor %}</div></div>
+            <div class="cc-field"><label>Custom background colour</label><div class="cc-color-row"><input type="color" id="ccCustomBg" value="#ffe06a" oninput="ccSet('customBg',this.value)"><button type="button" class="cc-chip" onclick="document.getElementById('ccCustomBg').value='#ffe06a';ccSet('customBg','#ffe06a')">Warm yellow</button></div></div>
+            <div class="cc-field"><label>Texture</label><div class="cc-chips">{% for t in ['none','soft-dots','lines','grid','paper'] %}<button type="button" class="cc-chip" data-texture="{{ t }}" onclick="ccSet('texture','{{ t }}')">{{ t|replace('soft-dots','soft dots')|title }}</button>{% endfor %}</div></div>
+          </div></details>
+
+          <details><summary>Lettering <span>your voice, your way</span></summary><div class="cc-detail">
+            <div class="cc-field"><label>Font</label><div class="cc-chips">{% for f in ['bold','soft','hand','mono','serif','display','light','wide','typewriter','comic','caps','elegant'] %}<button type="button" class="cc-chip" data-font="{{ f }}" onclick="ccSet('font','{{ f }}')">{{ f|title }}</button>{% endfor %}</div></div>
+            <div class="cc-field"><label>Size</label><input id="ccSize" class="cc-range" type="range" min="75" max="140" value="100" oninput="ccSet('size',this.value)"><div class="cc-range-label"><span>Small</span><span id="ccSizeOut">100%</span><span>Big</span></div></div>
+            <div class="cc-field"><label>Alignment</label><div class="cc-chips"><button type="button" class="cc-chip" onclick="ccSet('align','left')">Left</button><button type="button" class="cc-chip" onclick="ccSet('align','center')">Center</button><button type="button" class="cc-chip" onclick="ccSet('align','right')">Right</button></div></div>
+            <div class="cc-field"><label>Text colour</label><div class="cc-color-row"><input type="color" id="ccCustomText" value="#18272b" oninput="ccSet('customText',this.value)"><button type="button" class="cc-chip" onclick="ccSet('customText','')">Auto</button></div></div>
+          </div></details>
+
+          <details><summary>Accent & Finish <span>tiny details, big personality</span></summary><div class="cc-detail">
+            <div class="cc-field"><label>Accent</label><div class="cc-chips accent-grid">{% for d in ['spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'] %}<button type="button" class="cc-chip" onclick="ccSet('accent','{{ d }}')">{% if d=='verified' %}Blue verified{% elif d=='starblue' %}Blue star{% elif d=='checkblue' %}Blue check{% elif d=='crownblue' %}Blue crown{% elif d=='none' %}None{% else %}{{ d|title }}{% endif %}</button>{% endfor %}</div></div>
+            <div class="cc-field"><label>Border</label><div class="cc-chips">{% for b in ['classic','thin','dashed','double','none'] %}<button type="button" class="cc-chip" onclick="ccSet('border','{{ b }}')">{{ b|title }}</button>{% endfor %}</div></div>
+            <div class="cc-toggle-row"><label><input type="checkbox" id="ccSig" name="signature_enabled" value="1" checked onchange="ccPaint()"><span>Open Road signature</span></label><label><input type="checkbox" id="ccQr" checked onchange="ccPaint()"><span>Tiny QR</span></label></div>
+          </div></details>
+        </div>
+
+        <div class="cc-bottom-actions"><button type="button" class="ghost" onclick="ccNew()">New card</button><button type="button" class="primary" onclick="ccSave('save')">Save card</button><button type="button" class="secondary" onclick="ccSave('png')">Save + PNG</button></div>
+      </form>
+    </section>
+  {% endif %}</main>
+</div>
+{% if card_locked %}<dialog id="ccIdPanel" class="cc-id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="color-cards"><button type="button" class="cc-id-close" onclick="document.getElementById('ccIdPanel').close()">×</button><span>OPEN ROAD ID</span><h3>One simple ID.</h3><p>Use the same little ID across My Stuff.</p><input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" required placeholder="e.g. 4K8P"><button class="cc-id-submit" type="submit">Create ID</button></form></dialog>{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+document.body.classList.add('personal-route-body','color-cards-body');
+(function(){
+  const text=document.getElementById('ccText'), preview=document.getElementById('ccPreview'); if(!text||!preview)return;
+  const outT=document.getElementById('ccTitleOut'), outB=document.getElementById('ccBodyOut'), outA=document.getElementById('ccAccentOut');
+  const S={id:'',topic:'',body:'',color:'yellow',font:'bold',shape:'sticky',design:'sunny',background:'solid',accent:'spark',customBg:'',customText:'',align:'left',size:'100',border:'classic',texture:'none',signature:true,qr:true,mode:'topic'};
+  const deco={spark:'✦',sun:'☼',moon:'☾',heart:'♡',bird:'⌁',dots:'•••',none:'',verified:'✓',starblue:'★',checkblue:'✓',crownblue:'♛',diamond:'◆',bolt:'⚡',burst:'✹',seal:'●'};
+  const blue=new Set(['verified','starblue','checkblue','crownblue']);
+  function val(mode){return mode==='topic'?S.topic:S.body}
+  window.ccMode=function(m){if(S.mode==='topic')S.topic=text.value;else S.body=text.value;S.mode=m;text.value=val(m);text.placeholder=m==='topic'?'Write the topic / big line…':'Write the body / smaller message…';document.querySelectorAll('[data-cc-mode]').forEach(b=>b.classList.toggle('active',b.dataset.ccMode===m));ccPaint()};
+  window.ccSet=function(k,v){if(k==='color')S.color=v;if(k==='font')S.font=v;if(k==='shape')S.shape=v;if(k==='background')S.background=v;if(k==='customBg'){S.customBg=v;S.background='solid';}if(k==='customText')S.customText=v;if(k==='align')S.align=v;if(k==='size')S.size=v;if(k==='border')S.border=v;if(k==='texture')S.texture=v;if(k==='accent')S.accent=v;ccPaint()};
+  function sync(){if(S.mode==='topic')S.topic=text.value;else S.body=text.value;document.getElementById('ccWordState').textContent=(text.value||'').length+' characters';document.getElementById('ccSizeOut').textContent=S.size+'%';}
+  function markActive(){document.querySelectorAll('.cc-swatch').forEach(b=>b.classList.toggle('active',b.dataset.color===S.color));document.querySelectorAll('.cc-chip').forEach(b=>{b.classList.toggle('active',b.dataset.shape===S.shape||b.dataset.bg===S.background||b.dataset.font===S.font||b.dataset.texture===S.texture)});}
+  window.ccPaint=function(){sync();const title=S.topic.trim(),body=S.body.trim();preview.className='cc-card '+S.color+' '+S.font+' '+S.shape+' '+S.design+' '+S.background+' '+S.align+' border-'+S.border+' texture-'+S.texture+(title&&!body?' title-only':'')+(!title&&body?' body-only':'')+(S.customText?' custom-text':'')+(S.customBg?' custom-solid':'');preview.style.setProperty('--cc-custom-bg',S.customBg||'#ffe06a');preview.style.setProperty('--cc-custom-text',S.customText||'');preview.style.setProperty('--cc-scale',(Number(S.size||100)/100).toFixed(2));outT.textContent=title||'Your little idea';outB.textContent=body||'Write something worth keeping.';outA.textContent=deco[S.accent]||'';outA.classList.toggle('blue-accent',blue.has(S.accent));document.querySelector('.cc-brand').style.display=S.signature?'block':'none';document.querySelector('.cc-qr').style.display=S.qr?'grid':'none';document.getElementById('ccState').textContent=(title||body)?'Unsaved changes':'Ready';markActive();} ;
+  window.ccNew=function(){Object.assign(S,{id:'',topic:'',body:'',color:'yellow',font:'bold',shape:'sticky',design:'sunny',background:'solid',accent:'spark',customBg:'',customText:'',align:'left',size:'100',border:'classic',texture:'none',signature:true,qr:true,mode:'topic'});text.value='';document.getElementById('ccId').value='';document.getElementById('ccSize').value='100';document.getElementById('ccSig').checked=true;document.getElementById('ccQr').checked=true;document.querySelectorAll('[data-cc-mode]').forEach(b=>b.classList.toggle('active',b.dataset.ccMode==='topic'));ccPaint();text.focus();document.body.classList.remove('cc-drawer-open')};
+  window.ccLoad=function(id,title,body,color,font,shape,design,background,accent,customBg,customText,accentColor,align,size,border,texture){S.id=id;S.topic=title||'';S.body=body||'';S.color=color||'yellow';S.font=font||'bold';S.shape=shape||'sticky';S.design=design||'sunny';S.background=background||'solid';S.accent=accent||'spark';S.customBg=customBg||'#ffe06a';S.customText=customText||'';S.align=align||'left';S.size=size||'100';S.border=border||'classic';S.texture=texture||'none';S.mode=S.topic?'topic':'body';text.value=val(S.mode);document.getElementById('ccId').value=id;document.getElementById('ccSize').value=S.size;document.getElementById('ccSig').checked=true;document.getElementById('ccQr').checked=true;document.querySelectorAll('[data-cc-mode]').forEach(b=>b.classList.toggle('active',b.dataset.ccMode===S.mode));ccPaint();document.body.classList.remove('cc-drawer-open');text.focus()};
+  window.ccSurprise=function(){const pick=a=>a[Math.floor(Math.random()*a.length)];S.color=pick(['yellow','blue','pink','aqua','lime','orange','teal','white','purple','mint','coral','sky']);S.font=pick(['bold','soft','hand','mono','serif','display','typewriter','elegant']);S.shape=pick(['sticky','rounded','cloud','ticket','note','arch','pill','bubble','stamp','softbox']);S.background=pick(['solid','gradient','sunset','ocean','paper','grid','dots','aurora','cream','lavender','mintwash']);S.accent=pick(['spark','sun','moon','heart','bird','verified','starblue','checkblue','diamond','burst','none']);S.texture=pick(['none','soft-dots','lines','grid','paper']);ccPaint()};
+  window.ccSave=async function(kind){sync();const title=S.topic.trim(),body=S.body.trim();if(!title&&!body){text.focus();document.getElementById('ccState').textContent='Write something first';return}const form=new FormData();form.set('card_id',S.id);form.set('title',title);form.set('body',body);form.set('color',S.color);form.set('font_style',S.font);form.set('shape_style',S.shape);form.set('design_style',S.design);form.set('background_style',S.background);form.set('decoration',S.accent);form.set('custom_bg',S.customBg||'');form.set('custom_text',S.customText||'');form.set('text_align',S.align);form.set('font_scale',S.size);form.set('border_style',S.border);form.set('texture_style',S.texture);form.set('signature_enabled',S.signature?'1':'0');form.set('after_save',kind==='png'?'png':'color-cards');try{const r=await fetch(document.getElementById('ccForm').action,{method:'POST',body:form,headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});const j=await r.json();if(!j.ok)throw new Error(j.message||'Could not save');S.id=j.saved_id;document.getElementById('ccId').value=S.id;document.getElementById('ccState').textContent='Saved ✓';if(kind==='png'&&j.download_url){const a=document.createElement('a');a.href=j.download_url;a.click()}else{setTimeout(()=>location.reload(),350)}}catch(e){document.getElementById('ccState').textContent=e.message||'Could not save'}};
+  text.addEventListener('input',ccPaint);ccPaint();
+})();
+</script>
+{% endblock %}

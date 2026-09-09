@@ -928,7 +928,7 @@ def my_stuff_id():
     if not user: abort(403)
     value=request.form.get('simple_id','').strip()
     nxt=request.form.get('next','journal').strip().lower()
-    destinations={'journal':'public.my_stuff_journal','cards':'public.my_stuff_cards','copy-paste':'public.my_stuff_copy_paste','edits-studio':'public.my_stuff_edits_studio'}
+    destinations={'journal':'public.my_stuff_journal','cards':'public.my_stuff_cards','copy-paste':'public.my_stuff_copy_paste','color-cards':'public.my_stuff_color_cards','edits-studio':'public.my_stuff_edits_studio'}
     if not re.fullmatch(r'[A-Za-z0-9]{4,8}',value):
         flash('Choose a simple 4–8 character ID using letters and numbers.','error')
     elif _global_simple_id_hash(user):
@@ -1096,7 +1096,20 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
     design=getattr(card,'_export_design','sunny') or 'sunny'
     background=getattr(card,'_export_background','solid') or 'solid'
     decoration=getattr(card,'_export_decoration','spark') or 'spark'
+    custom_bg=getattr(card,'_export_custom_bg','') or ''
+    custom_text=getattr(card,'_export_custom_text','') or ''
+    text_align=getattr(card,'_export_text_align','left') or 'left'
+    try: font_scale=max(75,min(140,int(getattr(card,'_export_font_scale',100) or 100)))
+    except (TypeError,ValueError): font_scale=100
+    border_style=getattr(card,'_export_border','classic') or 'classic'
+    texture_style=getattr(card,'_export_texture','none') or 'none'
     bgc=tuple(int(bg.lstrip('#')[i:i+2],16) for i in (0,2,4)); inkc=tuple(int(ink.lstrip('#')[i:i+2],16) for i in (0,2,4)); acc=tuple(int(accent.lstrip('#')[i:i+2],16) for i in (0,2,4))
+    if custom_bg:
+        try: bgc=tuple(int(custom_bg.lstrip('#')[i:i+2],16) for i in (0,2,4))
+        except Exception: pass
+    if custom_text:
+        try: inkc=tuple(int(custom_text.lstrip('#')[i:i+2],16) for i in (0,2,4))
+        except Exception: pass
     if design=='night': inkc,acc=(248,251,250),(121,225,211)
     if background=='dark': bgc,inkc=(37,49,58),(248,251,250)
     img=Image.new('RGB',(W,H),(245,245,239)); d=ImageDraw.Draw(img)
@@ -1200,6 +1213,25 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         elif background=='dots':
             for yy in range(145,875,42):
                 for xx in range(180,1425,42): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=(80,90,86))
+    if border_style == 'thin':
+        outline_w=3
+    elif border_style == 'dashed':
+        outline_w=2
+        for xx in range(box[0],box[2],35): d.line((xx,box[1],min(xx+18,box[2]),box[1]),fill=inkc,width=outline_w)
+        for xx in range(box[0],box[2],35): d.line((xx,box[3],min(xx+18,box[2]),box[3]),fill=inkc,width=outline_w)
+    elif border_style == 'double':
+        d.rounded_rectangle((box[0]+12,box[1]+12,box[2]-12,box[3]-12),radius=32,outline=inkc,width=3)
+    elif border_style == 'none':
+        pass
+    if texture_style == 'lines':
+        for yy in range(box[1]+30,box[3],34): d.line((box[0]+25,yy,box[2]-25,yy),fill=tuple(min(255,int(v*.88)) for v in bgc),width=1)
+    elif texture_style == 'soft-dots':
+        for yy in range(box[1]+30,box[3],38):
+            for xx in range(box[0]+30,box[2],38): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=tuple(min(255,int(v*.86)) for v in bgc))
+    elif texture_style == 'grid':
+        for xx in range(box[0]+20,box[2],50): d.line((xx,box[1]+15,xx,box[3]-15),fill=tuple(min(255,int(v*.9)) for v in bgc),width=1)
+        for yy in range(box[1]+20,box[3],50): d.line((box[0]+15,yy,box[2]-15,yy),fill=tuple(min(255,int(v*.9)) for v in bgc),width=1)
+
     font_map={
         'bold':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         'soft':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -1211,9 +1243,9 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         p=font_map.get(style,font_map['bold'])
         try:return ImageFont.truetype(p,size)
         except OSError:return ImageFont.load_default()
-    align='center' if design in {'pastel','playful','night'} else 'left'; tx=800 if align=='center' else 245; anchor='ma' if align=='center' else 'la'
+    align=text_align if text_align in {'left','center','right'} else ('center' if design in {'pastel','playful','night'} else 'left'); tx={'left':245,'center':800,'right':1355}[align]; anchor={'left':'la','center':'ma','right':'ra'}[align]
     title=card['title'] or ''; body=card['body'] or ''
-    title_font=F(font_style,82); body_font=F('mono' if font_style=='mono' else 'soft',38); small=F('bold',24)
+    title_font=F(font_style,int(82*font_scale/100)); body_font=F('mono' if font_style=='mono' else 'soft',int(38*font_scale/100)); small=F('bold',24)
     def wrap(text,font,maxw):
         lines=[]; cur=''
         for word in str(text).split():
@@ -1271,6 +1303,12 @@ def my_stuff_card_download(card_id):
             self._export_qr=bool(r['qr_enabled']) if 'qr_enabled' in r.keys() else True
             self._export_signature=bool(r['signature_enabled']) if 'signature_enabled' in r.keys() else True
             self._export_decoration=r['decoration'] if 'decoration' in r.keys() else 'spark'
+            self._export_custom_bg=r['custom_bg'] if 'custom_bg' in r.keys() else ''
+            self._export_custom_text=r['custom_text'] if 'custom_text' in r.keys() else ''
+            self._export_text_align=r['text_align'] if 'text_align' in r.keys() else 'left'
+            self._export_font_scale=r['font_scale'] if 'font_scale' in r.keys() else 100
+            self._export_border=r['border_style'] if 'border_style' in r.keys() else 'classic'
+            self._export_texture=r['texture_style'] if 'texture_style' in r.keys() else 'none'
         def __getitem__(self,k): return self._r[k]
     card=CardProxy(row,style,seed)
     image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
@@ -1319,23 +1357,92 @@ def my_stuff_copy_delete(item_id):
     if not user: abort(403)
     db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit(); flash('Saved item deleted.','success'); return redirect(url_for('public.my_stuff_copy_paste'))
 
+@bp.get('/my-stuff/color-cards')
+def my_stuff_color_cards():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_card_uses')
+    use_count=int(user['stuff_card_uses'] or 0)
+    has_id=_stuff_id_ready(user)
+    if not has_id and use_count > 5:
+        return render_template('my_color_cards.html',user=user,cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall(),card_locked=True,card_use_count=use_count)
+    cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=use_count)
+
+@bp.post('/my-stuff/color-card/save')
+def my_stuff_color_card_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user):
+        return jsonify(ok=False,message='Create your Open Road ID to keep using Color Cards.'),403
+    db=get_db()
+    card_id=request.form.get('card_id','').strip()
+    title=request.form.get('title','').strip()[:100]
+    body=request.form.get('body','').strip()[:1000]
+    color=request.form.get('color','yellow').strip().lower()
+    font_style=request.form.get('font_style','bold').strip().lower()
+    shape_style=request.form.get('shape_style','sticky').strip().lower()
+    design_style=request.form.get('design_style','sunny').strip().lower()
+    background_style=request.form.get('background_style','solid').strip().lower()
+    decoration=request.form.get('decoration','spark').strip().lower()
+    custom_bg=request.form.get('custom_bg','').strip()[:20]
+    custom_text=request.form.get('custom_text','').strip()[:20]
+    text_align=request.form.get('text_align','left').strip().lower()
+    try: font_scale=max(75,min(140,int(request.form.get('font_scale','100'))))
+    except (TypeError,ValueError): font_scale=100
+    border_style=request.form.get('border_style','classic').strip().lower()
+    texture_style=request.form.get('texture_style','none').strip().lower()
+    signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
+    allowed_colors={'yellow','blue','pink','aqua','lime','orange','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}
+    allowed_fonts={'bold','soft','mono','hand','serif','display','light','wide','typewriter','comic','caps','elegant'}
+    allowed_shapes={'sticky','rounded','ticket','cloud','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}
+    allowed_designs={'sunny','pastel','marker','minimal','night','playful'}
+    allowed_backgrounds={'solid','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}
+    allowed_decos={'spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'}
+    allowed_align={'left','center','right'}
+    allowed_border={'classic','thin','dashed','double','none'}
+    allowed_texture={'none','soft-dots','lines','grid','paper'}
+    if color not in allowed_colors: color='yellow'
+    if font_style not in allowed_fonts: font_style='bold'
+    if shape_style not in allowed_shapes: shape_style='sticky'
+    if design_style not in allowed_designs: design_style='sunny'
+    if background_style not in allowed_backgrounds: background_style='solid'
+    if decoration not in allowed_decos: decoration='spark'
+    if text_align not in allowed_align: text_align='left'
+    if border_style not in allowed_border: border_style='classic'
+    if texture_style not in allowed_texture: texture_style='none'
+    import re as _re
+    def clean_hex(v, default=''):
+        return v if _re.fullmatch(r'#?[0-9a-fA-F]{6}',v or '') else default
+    custom_bg=clean_hex(custom_bg,'')
+    custom_text=clean_hex(custom_text,'')
+    if not title and not body: return jsonify(ok=False,message='Write a topic or body first.'),400
+    cols=['title','body','color','font_style','shape_style','design_style','background_style','qr_enabled','signature_enabled','decoration','custom_bg','custom_text','text_align','font_scale','border_style','texture_style','updated_at']
+    vals=[title,body,color,font_style,shape_style,design_style,background_style,1,signature_enabled,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,now()]
+    if card_id:
+        owned=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+        if not owned: return jsonify(ok=False,message='That card was not found.'),404
+        sets=', '.join(f'{c}=?' for c in cols)
+        db.execute(f'UPDATE stuff_cards SET {sets} WHERE id=? AND user_id=?',tuple(vals+[card_id,user['id']]))
+        saved_id=int(card_id); msg='Color Card updated.'
+    else:
+        placeholders=','.join('?'*len(vals))
+        cur=db.execute(f'INSERT INTO stuff_cards(user_id,{",".join(cols)}) VALUES(?,{placeholders})',tuple([user['id']]+vals))
+        saved_id=int(cur.lastrowid); msg='Color Card saved.'
+    db.commit()
+    download_url=url_for('public.my_stuff_card_download',card_id=saved_id,style=design_style,seed=saved_id,brand=('1' if signature_enabled else '0'))
+    return jsonify(ok=True,saved_id=saved_id,message=msg,download_url=download_url)
+
+@bp.post('/my-stuff/color-card/<int:card_id>/delete')
+def my_stuff_color_card_delete(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    return redirect(url_for('public.my_stuff_color_cards'))
+
 @bp.get('/my-stuff/edits-studio')
 def my_stuff_edits_studio():
-    user=_current_user_for_stuff()
-    mode=request.args.get('mode','cards').strip().lower()
-    if mode not in {'cards','photo'}: mode='cards'
-    if mode=='cards':
-        user=_stuff_use_and_context(user,'stuff_card_uses')
-    else:
-        user=_stuff_use_and_context(user,'stuff_edits_uses')
-    db=get_db()
-    images=db.execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
-    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
-    selected_id=request.args.get('image','').strip()
-    selected_image=db.execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(int(selected_id),user['id'])).fetchone() if selected_id.isdigit() else None
-    card_locked=(mode=='cards' and not _cards_allowed(user))
-    qr_preview=make_qr_bytes(url_for('public.home', _external=True)) if mode=='cards' else b''
-    return render_template('my_edits_studio.html',user=user,images=images,cards=cards,selected_image=selected_image,mode=mode,card_locked=card_locked,simple_id_exists=_stuff_id_ready(user),use_count=int((user['stuff_card_uses'] if mode=='cards' else user['stuff_edits_uses']) or 0),qr_preview=qr_preview)
+    # Legacy URL retained so old bookmarks do not break; the old editor is no longer exposed.
+    return redirect(url_for('public.my_stuff_color_cards'))
 
 @bp.post('/my-stuff/image')
 def my_stuff_image_upload():
