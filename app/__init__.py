@@ -1,4 +1,4 @@
-import os, secrets
+import os, secrets, logging, traceback
 from pathlib import Path
 from flask import Flask, request
 from .db import init_db
@@ -46,9 +46,21 @@ def create_app():
     app.register_blueprint(bp)
     app.register_blueprint(admin_bp, url_prefix='/'+app.config['ADMIN_PATH'])
     @app.errorhandler(404)
-    def not_found(_): return __import__('flask').render_template('not_found.html'), 404
+    def not_found(err):
+        try:
+            db=get_db(); uid=request.cookies.get('visitor_key','')
+            db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                       (__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),404,request.path,request.method,type(err).__name__,str(err),'',request.args.get('_uid'),uid,request.headers.get('User-Agent','')[:600],request.remote_addr or '')); db.commit()
+        except Exception: app.logger.exception('Could not persist 404 analytics')
+        return __import__('flask').render_template('not_found.html'), 404
     @app.errorhandler(500)
-    def server_error(_): return __import__('flask').render_template('error.html'), 500
+    def server_error(err):
+        tb=traceback.format_exc()
+        try:
+            db=get_db(); db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                       (__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),500,request.path,request.method,type(err).__name__,str(err),tb[-12000:],request.cookies.get('_uid'),request.cookies.get('visitor_key',''),request.headers.get('User-Agent','')[:600],request.remote_addr or '')); db.commit()
+        except Exception: app.logger.exception('Could not persist 500 analytics')
+        return __import__('flask').render_template('error.html'), 500
     @app.after_request
     def headers(resp):
         resp.headers['X-Content-Type-Options']='nosniff'; resp.headers['X-Frame-Options']='DENY'; resp.headers['Referrer-Policy']='strict-origin-when-cross-origin'

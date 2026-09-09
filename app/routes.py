@@ -26,11 +26,36 @@ def promo_value():
     except ValueError: days=0
     return base + days*growth
 
+def _request_ip():
+    # Keep the first proxy address for admin diagnostics; deployment may sit behind a proxy.
+    forwarded=request.headers.get('X-Forwarded-For','')
+    return (forwarded.split(',')[0].strip() if forwarded else request.remote_addr or '')[:120]
+
+def _ua_details(ua=''):
+    ua=ua or ''
+    platform='Android' if 'Android' in ua else ('iPhone/iPad' if ('iPhone' in ua or 'iPad' in ua) else ('Windows' if 'Windows' in ua else ('Mac' if 'Macintosh' in ua else ('Linux' if 'Linux' in ua else 'Other'))))
+    browser='Chrome' if 'Chrome/' in ua and 'Edg/' not in ua else ('Edge' if 'Edg/' in ua else ('Safari' if 'Safari/' in ua and 'Chrome/' not in ua else ('Firefox' if 'Firefox/' in ua else 'Other')))
+    model=''
+    m=re.search(r'Android[^;)]*;\s*(?:[a-z]{2}-[A-Z]{2};\s*)?(?:wv;\s*)?([^;\)]+)',ua)
+    if m: model=m.group(1).strip()
+    if model in {'K','wv','Mobile'}: model=''
+    return model[:120],platform,browser
+
 def log_visit():
-    if request.path.startswith('/static/') or request.path.startswith('/media/') or request.path.startswith('/api/'):
+    if request.path.startswith(('/static/','/media/','/api/','/pulse_receiver','/health')):
         return
     key=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
-    db=get_db(); db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(key,request.path,now())); db.commit(); request._visitor_key=key
+    me=None
+    try:
+        uid=session.get('user_id')
+        if uid: me=get_db().execute('SELECT id,name,email,phone FROM users WHERE id=? AND deleted_at IS NULL',(uid,)).fetchone()
+    except Exception:
+        me=None
+    model,platform,browser=_ua_details(request.headers.get('User-Agent',''))
+    db=get_db(); cur=db.execute(
+        'INSERT INTO visits(visitor_key,path,created_at,user_id,name,email,phone,method,referrer,user_agent,ip_address,device_model,platform,browser) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (key,request.path,now(), me['id'] if me else None, me['name'] if me else '', me['email'] if me else '', me['phone'] if me else '', request.method, request.referrer or '', request.headers.get('User-Agent','')[:600], _request_ip(), model, platform, browser))
+    db.commit(); request._visitor_key=key; request._visit_id=cur.lastrowid
 
 @bp.before_request
 def before(): log_visit()
@@ -46,6 +71,29 @@ def visitor_cookie(response):
 def health(): return jsonify(ok=True, service='open-road-adventures')
 @bp.route('/pulse_receiver',methods=['GET','POST'])
 def pulse_receiver(): return jsonify(ok=True, received=True)
+
+@bp.post('/telemetry')
+def telemetry():
+    key=request.cookies.get('visitor_key')
+    if not key: return jsonify(ok=True)
+    data=request.get_json(silent=True) or {}
+    model=str(data.get('model','') or '')[:120]
+    platform=str(data.get('platform','') or '')[:120]
+    browser=str(data.get('browser','') or '')[:200]
+    db=get_db(); db.execute('UPDATE visits SET device_model=COALESCE(NULLIF(?,''),device_model), platform=COALESCE(NULLIF(?,''),platform), browser=COALESCE(NULLIF(?,''),browser) WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)',(model,platform,browser,key)); db.commit()
+    return jsonify(ok=True)
+
+@bp.post('/client-error')
+def client_error():
+    data=request.get_json(silent=True) or {}
+    db=get_db(); key=request.cookies.get('visitor_key','')
+    uid=session.get('user_id')
+    message=str(data.get('message','Client-side error'))[:4000]
+    kind=str(data.get('kind','ClientError'))[:100]
+    extra='source='+str(data.get('source',''))[:300]+' line='+str(data.get('line',''))[:20]+' column='+str(data.get('column',''))[:20]
+    stack=str(data.get('stack',''))[:10000]
+    db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(now(),0,request.path,request.method,kind,message,extra+'\n'+stack,uid,key,request.headers.get('User-Agent','')[:600],_request_ip())); db.commit()
+    return jsonify(ok=True)
 
 @bp.get('/')
 def home():

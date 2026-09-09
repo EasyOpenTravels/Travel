@@ -40,7 +40,15 @@ CREATE TABLE IF NOT EXISTS votes (
  UNIQUE(trip_id, voter_key)
 );
 CREATE TABLE IF NOT EXISTS visits (
- id INTEGER PRIMARY KEY AUTOINCREMENT, visitor_key TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL
+ id INTEGER PRIMARY KEY AUTOINCREMENT, visitor_key TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL,
+ user_id INTEGER, name TEXT DEFAULT '', email TEXT DEFAULT '', phone TEXT DEFAULT '',
+ method TEXT DEFAULT 'GET', referrer TEXT DEFAULT '', user_agent TEXT DEFAULT '', ip_address TEXT DEFAULT '',
+ device_model TEXT DEFAULT '', platform TEXT DEFAULT '', browser TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS error_logs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, status_code INTEGER NOT NULL,
+ path TEXT NOT NULL, method TEXT NOT NULL, error_type TEXT NOT NULL, message TEXT NOT NULL,
+ traceback TEXT DEFAULT '', user_id INTEGER, visitor_key TEXT DEFAULT '', user_agent TEXT DEFAULT '', ip_address TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS destinations (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL,
@@ -254,6 +262,20 @@ def init_db(app):
         db.executescript(SCHEMA)
         # Safe upgrades from the earlier build.
         upgrades = {
+            'visits': {
+                'user_id': 'ALTER TABLE visits ADD COLUMN user_id INTEGER',
+                'name': "ALTER TABLE visits ADD COLUMN name TEXT DEFAULT ''",
+                'email': "ALTER TABLE visits ADD COLUMN email TEXT DEFAULT ''",
+                'phone': "ALTER TABLE visits ADD COLUMN phone TEXT DEFAULT ''",
+                'method': "ALTER TABLE visits ADD COLUMN method TEXT DEFAULT 'GET'",
+                'referrer': "ALTER TABLE visits ADD COLUMN referrer TEXT DEFAULT ''",
+                'user_agent': "ALTER TABLE visits ADD COLUMN user_agent TEXT DEFAULT ''",
+                'ip_address': "ALTER TABLE visits ADD COLUMN ip_address TEXT DEFAULT ''",
+                'device_model': "ALTER TABLE visits ADD COLUMN device_model TEXT DEFAULT ''",
+                'platform': "ALTER TABLE visits ADD COLUMN platform TEXT DEFAULT ''",
+                'browser': "ALTER TABLE visits ADD COLUMN browser TEXT DEFAULT ''",
+            },
+            'error_logs': {},
             'users': {
                 'remember_token': 'ALTER TABLE users ADD COLUMN remember_token TEXT',
                 'remember_until': 'ALTER TABLE users ADD COLUMN remember_until TEXT',

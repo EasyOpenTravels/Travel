@@ -53,7 +53,9 @@ def dashboard():
     }
     rows={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
     trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall(); services=db.execute('SELECT * FROM services ORDER BY sort_order,id').fetchall(); service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC LIMIT 12').fetchall()
-    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests)
+    visits=db.execute('SELECT * FROM visits ORDER BY id DESC LIMIT 35').fetchall()
+    errors=db.execute('SELECT * FROM error_logs ORDER BY id DESC LIMIT 35').fetchall()
+    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests,visits=visits,errors=errors)
 
 @admin_bp.route('/trips/new',methods=['GET','POST'])
 @admin_bp.route('/trips/<int:trip_id>/edit',methods=['GET','POST'])
