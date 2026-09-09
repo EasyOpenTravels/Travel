@@ -1,0 +1,246 @@
+
+@bp.post('/my-stuff/journal/<int:entry_id>/archive')
+def my_stuff_journal_archive(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); row=db.execute('SELECT archived FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET archived=? WHERE id=? AND user_id=?',(0 if row['archived'] else 1,entry_id,user['id'])); db.commit(); flash('Journal story updated.','success')
+    return redirect(url_for('public.my_stuff_journal',view='archived' if not row['archived'] else 'active'))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/delete')
+def my_stuff_journal_delete(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); cur=db.execute('DELETE FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
+    if not cur.rowcount: abort(404)
+    flash('Journal story deleted.','success'); return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/save')
+def my_stuff_folder_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); folder_id=request.form.get('folder_id','').strip(); name=request.form.get('name','').strip()[:60]; color=request.form.get('color','lime')
+    if color not in _stuff_colors(): color='lime'
+    if not name: flash('Give the folder a name.','error'); return redirect(url_for('public.my_stuff_journal'))
+    try:
+        if folder_id: db.execute('UPDATE stuff_folders SET name=?,color=? WHERE id=? AND user_id=?',(name,color,folder_id,user['id']))
+        else: db.execute('INSERT INTO stuff_folders(user_id,name,color,created_at) VALUES(?,?,?,?)',(user['id'],name,color,now()))
+        db.commit(); flash('Folder saved.','success')
+    except sqlite3.IntegrityError: flash('You already have a folder with that name.','error')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/<int:folder_id>/delete')
+def my_stuff_folder_delete(folder_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])); db.commit(); flash('Folder deleted.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.get('/my-stuff/cards')
+def my_stuff_cards():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_card_uses')
+    use_count=int(user['stuff_card_uses'] or 0)
+    has_id=_stuff_id_ready(user)
+    if not has_id and use_count > 5:
+        return render_template('my_cards.html',user=user,cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall(),folders=get_db().execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall(),card_locked=True,card_use_count=use_count,simple_id_exists=False)
+    db=get_db()
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    folders=db.execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall()
+    return render_template('my_cards.html',user=user,cards=cards,folders=folders,card_locked=False,card_use_count=use_count,simple_id_exists=has_id)
+
+@bp.post('/my-stuff/card/save')
+def my_stuff_card_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user):
+        flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
+    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
+    font_style=request.form.get('font_style','bold').strip().lower(); shape_style=request.form.get('shape_style','sticky').strip().lower(); design_style=request.form.get('design_style','sunny').strip().lower()
+    qr_enabled=1 if request.form.get('qr_enabled') in {'1','on','yes','true'} else 0
+    signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
+    if color not in _stuff_colors(): color='lime'
+    if font_style not in {'bold','soft','mono','hand'}: font_style='bold'
+    if shape_style not in {'sticky','rounded','ticket','cloud','note','arch'}: shape_style='sticky'
+    if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
+    if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
+    if not body:
+        flash('Write something on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
+    if not title:
+        first_line=next((line.strip() for line in body.splitlines() if line.strip()), '')
+        title=(first_line[:70] or 'My little card')
+    after_save=request.form.get('after_save','').strip().lower()
+    if card_id:
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
+    else:
+        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,now(),now())); msg='Card saved.'; saved_id=int(cur.lastrowid)
+    db.commit(); flash(msg,'success')
+    if after_save == 'png':
+        return redirect(url_for('public.my_stuff_card_download', card_id=saved_id, style=design_style, seed=saved_id, brand=1))
+    if after_save in {'stay','edits'}:
+        return redirect(url_for('public.my_stuff_edits_studio', saved=saved_id))
+    return redirect(url_for('public.my_stuff_cards'))
+
+
+
+def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from io import BytesIO
+    import random, math, textwrap
+    palettes = {
+        'lime': ('#f1f8a8','#15201b','#8db84d'), 'aqua': ('#bdeee7','#112027','#45aaa0'),
+        'orange': ('#ffd09b','#261710','#d27b39'), 'pink': ('#ffc4d8','#28121c','#d65c86'),
+        'blue': ('#bfd8ff','#112031','#5c7fc0'), 'yellow': ('#ffe779','#221d0d','#c4961f'),
+        'teal': ('#7cdecf','#10211f','#329b8f'), 'white': ('#fffdf8','#172028','#9fa8aa'),
+    }
+    bg, ink, accent = palettes.get(card['color'], palettes['lime'])
+    font_style=getattr(card,'_export_font','bold') or 'bold'
+    shape_style=getattr(card,'_export_shape','sticky') or 'sticky'
+    design_style=getattr(card,'_export_design','sunny') or 'sunny'
+    W,H=1600,1000
+    img=Image.new('RGB',(W,H),'#e9eef2'); d=ImageDraw.Draw(img)
+    def rgb(x): x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
+    bgc, inkc, ac=rgb(bg), rgb(ink), rgb(accent)
+    rng=random.Random(getattr(card,'_export_seed',0) or card['id']*7919)
+    # wall / paper feel
+    d.rectangle((0,0,W,H),fill=(240,242,238))
+    if design_style=='night':
+        d.rectangle((0,0,W,H),fill=(20,30,38)); bg,ink,accent='#17242c','#ffffff','#79e1d2'; bgc,inkc,ac=rgb(bg),rgb(ink),rgb(accent)
+    elif design_style=='pastel':
+        d.ellipse((-200,-160,520,460),fill=tuple(min(255,c+12) for c in bgc))
+        d.ellipse((1180,620,1860,1230),fill=tuple(min(255,c+18) for c in bgc))
+    # card geometry
+    box=(130,100,W-130,H-100)
+    shadow=(box[0]+18,box[1]+22,box[2]+18,box[3]+22)
+    d.rounded_rectangle(shadow,radius=55,fill=(0,0,0,24) if False else (42,51,55))
+    if shape_style=='sticky':
+        d.rounded_rectangle(box,radius=28,fill=bgc,outline=inkc,width=6)
+        # curled corner
+        d.polygon([(W-270,100),(W-130,240),(W-270,240)],fill=tuple(max(0,c-10) for c in bgc))
+        d.line((W-270,100,W-270,240,W-130,240),fill=inkc,width=4)
+    elif shape_style=='rounded':
+        d.rounded_rectangle(box,radius=90,fill=bgc,outline=inkc,width=6)
+    elif shape_style=='ticket':
+        d.rounded_rectangle(box,radius=24,fill=bgc,outline=inkc,width=6)
+        for y in range(160,900,75):
+            d.ellipse((125,y-13,151,y+13),fill=(240,242,238)); d.ellipse((1449,y-13,1475,y+13),fill=(240,242,238))
+    elif shape_style=='cloud':
+        # layered bubbles create a friendly wall-sticker silhouette
+        pts=[(165,250),(235,150),(360,135),(455,195),(570,135),(720,155),(790,110),(980,145),(1075,190),(1225,125),(1385,195),(1450,315),(1410,760),(1280,860),(1120,900),(980,850),(810,915),(650,870),(505,910),(365,850),(240,865),(145,745)]
+        d.polygon(pts,fill=bgc)
+        d.line(pts+[pts[0]],fill=inkc,width=6,joint='curve')
+    elif shape_style=='note':
+        d.rectangle(box,fill=bgc,outline=inkc,width=6)
+        for y in range(210,860,78): d.line((190,y,1410,y),fill=tuple(min(255,c+20) for c in bgc),width=2)
+    elif shape_style=='arch':
+        d.rectangle((130,250,W-130,H-100),fill=bgc,outline=inkc,width=6)
+        d.ellipse((130,10,W-130,490),fill=bgc,outline=inkc,width=6)
+    # fonts
+    def font_paths(kind='bold'):
+        if kind=='mono': return ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf']
+        if kind=='soft': return ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+        if kind=='hand': return ['/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf']
+        return ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
+    def load_card_font(ink_style='bold',size=40):
+        for fp in font_paths(ink_style):
+            if Path(fp).exists(): return ImageFont.truetype(fp,size=size)
+        return ImageFont.load_default()
+    # visual sticker decorations
+    deco=[('★',165,155,38),('✦',1375,180,34),('•',1370,770,58),('♥',190,760,32)]
+    if design_style=='minimal': deco=[]
+    if design_style=='marker': deco += [('—',1070,160,48),('—',1120,160,48)]
+    if design_style=='playful': deco += [('✳',1250,820,42),('☺',300,190,34)]
+    for ch,x,y,sz in deco:
+        d.text((x,y),ch,font=load_card_font(ink_style='bold',size=sz),fill=ac)
+    f_label=load_card_font('bold',30); f_title=load_card_font(font_style,95); f_body=load_card_font('soft' if font_style!='mono' else 'mono',45); f_small=load_card_font('bold',24); f_brand=load_card_font('bold',24)
+    title=card['title'] or 'Untitled card'; body=card['body'] or ''
+    align='center' if design_style in {'pastel','playful'} else 'left'
+    tx=800 if align=='center' else 220
+    d.text((tx,190),'OPEN ROAD · LITTLE CARD',font=f_label,fill=inkc,anchor='ma' if align=='center' else 'la')
+    # title wrapping
+    def wrap(text,font,maxw):
+        words=text.split(); out=[]; cur=''
+        for w in words:
+            t=(cur+' '+w).strip()
+            if d.textbbox((0,0),t,font=font)[2] <= maxw: cur=t
+            else:
+                if cur: out.append(cur)
+                cur=w
+        if cur: out.append(cur)
+        return out
+    tlines=wrap(title,f_title,1120)[:3]
+    y=300
+    for line in tlines:
+        d.text((tx,y),line,font=f_title,fill=inkc,anchor='ma' if align=='center' else 'la'); y+=100
+    blines=wrap(body,f_body,1100)[:7]
+    y=max(y+20,520)
+    for line in blines:
+        d.text((tx,y),line,font=f_body,fill=inkc,anchor='ma' if align=='center' else 'la'); y+=60
+    d.text((tx,H-175),'MADE TO KEEP · PRINT · POST · SHARE',font=f_small,fill=inkc,anchor='ma' if align=='center' else 'la')
+    qr_on=bool(getattr(card,'_export_qr',True)) and include_branding
+    sig_on=bool(getattr(card,'_export_signature',True)) and include_branding
+    if sig_on:
+        d.rounded_rectangle((W-565,H-235,W-285,H-165),radius=24,fill=inkc)
+        d.text((W-425,H-200),brand_name[:25],font=f_brand,fill=bgc,anchor='mm')
+    if qr_on:
+        try:
+            from .qr import make_qr_bytes
+            qr=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB')
+            qr=qr.resize((92,92),Image.Resampling.LANCZOS)
+            qx,qy=W-225,H-245
+            d.rounded_rectangle((qx-9,qy-9,qx+101,qy+101),radius=12,fill=(255,255,255),outline=inkc,width=3)
+            img.paste(qr,(qx,qy))
+        except Exception: pass
+    return img
+
+@bp.get('/my-stuff/card/<int:card_id>/download')
+def my_stuff_card_download(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+    if not row: abort(404)
+    style=request.args.get('style','sunrise').strip().lower()
+    allowed={'sunrise','editorial','poster','minimal','playful','night','sunny','pastel','marker'}
+    if style not in allowed: style='sunny'
+    try: seed=int(request.args.get('seed','0'))
+    except ValueError: seed=0
+    include=request.args.get('brand','1') not in {'0','false','no'}
+    class CardProxy:
+        def __init__(self,r,style,seed):
+            self._r=r; self._export_style=style; self._export_seed=seed
+            self._export_font=r['font_style'] if 'font_style' in r.keys() else 'bold'
+            self._export_shape=r['shape_style'] if 'shape_style' in r.keys() else 'sticky'
+            self._export_design=r['design_style'] if 'design_style' in r.keys() else 'sunny'
+            self._export_qr=bool(r['qr_enabled']) if 'qr_enabled' in r.keys() else True
+            self._export_signature=bool(r['signature_enabled']) if 'signature_enabled' in r.keys() else True
+        def __getitem__(self,k): return self._r[k]
+    card=CardProxy(row,style,seed)
+    image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
+    out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
+    safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title']).strip('-')[:55] or 'quick-card'
+    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+
+@bp.post('/my-stuff/card/<int:card_id>/delete')
+def my_stuff_card_delete(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    if row and row['image_filename']:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['image_filename']))
+        except OSError: pass
+    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff_cards'))
+
+@bp.get('/my-stuff/copy-paste')
+def my_stuff_copy_paste():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_copy_uses')
+    db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? AND id IN (SELECT MAX(id) FROM saved_copies WHERE user_id=? GROUP BY label,value) ORDER BY updated_at DESC,id DESC',(user['id'],user['id'])).fetchall()
+    edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
+    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_copy_uses'] or 0))

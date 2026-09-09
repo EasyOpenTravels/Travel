@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS stuff_cards (
  design_style TEXT NOT NULL DEFAULT 'sunny',
  qr_enabled INTEGER NOT NULL DEFAULT 1,
  signature_enabled INTEGER NOT NULL DEFAULT 1,
+ decoration TEXT NOT NULL DEFAULT 'spark',
  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
  FOREIGN KEY(folder_id) REFERENCES stuff_folders(id) ON DELETE SET NULL
 );
@@ -280,6 +281,7 @@ def init_db(app):
                 'design_style': "ALTER TABLE stuff_cards ADD COLUMN design_style TEXT NOT NULL DEFAULT 'sunny'",
                 'qr_enabled': "ALTER TABLE stuff_cards ADD COLUMN qr_enabled INTEGER NOT NULL DEFAULT 1",
                 'signature_enabled': "ALTER TABLE stuff_cards ADD COLUMN signature_enabled INTEGER NOT NULL DEFAULT 1",
+                'decoration': "ALTER TABLE stuff_cards ADD COLUMN decoration TEXT NOT NULL DEFAULT 'spark'",
             },
             'event_ticket_events': {
                 'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',

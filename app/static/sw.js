@@ -1,10 +1,10 @@
-const CACHE = 'open-road-pwa-v25';
+const CACHE = 'open-road-pwa-v28';
 const CORE = [
   '/',
   '/offline',
   '/offline/my-stuff',
   '/manifest.json',
-  '/static/style.css?v=25',
+  '/static/style.css?v=27',
   '/sw.js',
   '/static/icon.svg',
   '/static/placeholder.svg',
@@ -81,7 +81,7 @@ self.addEventListener('fetch', event => {
   // IndexedDB workspace instead of serving somebody's cached private HTML.
   if (isNavigation && (pathname === '/my-stuff' || pathname.startsWith('/my-stuff/'))) {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/offline/my-stuff'))
+      fetch(request).then(response => cacheFresh(request, response)).catch(() => caches.match(request).then(cached => cached || caches.match('/offline/my-stuff')))
     );
     return;
   }
@@ -105,10 +105,10 @@ self.addEventListener('fetch', event => {
   // Never cache sensitive/private server responses.
   if (isSensitive(pathname)) return;
 
-  // For other GET requests, prefer the network but keep a harmless public copy.
+  // Other GET requests: keep a local copy after the first successful visit.
   event.respondWith(
     fetch(request)
       .then(response => cacheFresh(request, response))
-      .catch(() => caches.match(request))
+      .catch(() => caches.match(request).then(cached => cached || caches.match('/offline')))
   );
 });
