@@ -80,7 +80,12 @@ def telemetry():
     model=str(data.get('model','') or '')[:120]
     platform=str(data.get('platform','') or '')[:120]
     browser=str(data.get('browser','') or '')[:200]
-    db=get_db(); db.execute('UPDATE visits SET device_model=COALESCE(NULLIF(?,''),device_model), platform=COALESCE(NULLIF(?,''),platform), browser=COALESCE(NULLIF(?,''),browser) WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)',(model,platform,browser,key)); db.commit()
+    db=get_db()
+    db.execute(
+        "UPDATE visits SET device_model=COALESCE(NULLIF(?, ''), device_model), platform=COALESCE(NULLIF(?, ''), platform), browser=COALESCE(NULLIF(?, ''), browser) WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)",
+        (model, platform, browser, key)
+    )
+    db.commit()
     return jsonify(ok=True)
 
 @bp.post('/client-error')

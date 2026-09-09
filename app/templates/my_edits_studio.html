@@ -142,25 +142,27 @@ document.body.classList.add('personal-route-body');
   });
   window.addEventListener('scroll',()=>openTool&&positionPop(openTool),true);
   window.addEventListener('resize',()=>openTool&&positionPop(openTool));
-  document.addEventListener('change',e=>{
-    const input=e.target.closest('.myed-pop input');
-    if(!input)return;
-    closeOpen();
-    paint();
-  });
-  document.addEventListener('pointerup',e=>{
+  document.addEventListener('click',e=>{
     const label=e.target.closest('.myed-pop label');
     if(!label)return;
     const input=label.querySelector('input[type=radio]');
     if(!input)return;
     e.preventDefault();
+    e.stopPropagation();
     input.checked=true;
-    input.dispatchEvent(new Event('change',{bubbles:true}));
+    closeOpen();
+    paint();
   },true);
+  document.addEventListener('change',e=>{
+    const input=e.target.closest('.myed-picks input');
+    if(!input)return;
+    paint();
+    if(input.closest('.myed-pop')) closeOpen();
+  });
   document.addEventListener('keydown',e=>{
     if((e.key==='Enter'||e.key===' ') && e.target.closest('.myed-pop label')){
       const input=e.target.closest('label')?.querySelector('input[type=radio]');
-      if(input){e.preventDefault();input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))}
+      if(input){e.preventDefault();input.checked=true;closeOpen();paint();}
     }
   });
   function paint(){

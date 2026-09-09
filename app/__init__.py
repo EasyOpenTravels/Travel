@@ -1,7 +1,7 @@
 import os, secrets, logging, traceback
 from pathlib import Path
 from flask import Flask, request
-from .db import init_db
+from .db import init_db, get_db
 
 def _secret(path):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
