@@ -59,8 +59,36 @@ window.addEventListener('DOMContentLoaded',()=>{
   const send=(payload)=>{try{navigator.sendBeacon('/client-error',new Blob([JSON.stringify(payload)],{type:'application/json'}));}catch(_){fetch('/client-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true}).catch(()=>{});}};
   window.addEventListener('error',e=>send({kind:'JavaScriptError',message:String(e.message||'Unknown error'),page:location.pathname+location.search,source:String(e.filename||''),line:e.lineno||0,column:e.colno||0,stack:e.error&&e.error.stack||''}));
   window.addEventListener('unhandledrejection',e=>send({kind:'UnhandledPromise',message:String(e.reason&&e.reason.message||e.reason||'Unhandled rejection'),page:location.pathname+location.search,stack:e.reason&&e.reason.stack||''}));
-  window.addEventListener('DOMContentLoaded',()=>{try{const fallback=navigator.userAgent||'';const u=navigator.userAgentData;if(!u){fetch('/telemetry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'',platform:fallback.includes('Android')?'Android':(fallback.includes('Windows')?'Windows PC':(fallback.includes('iPhone')||fallback.includes('iPad')?'iPhone/iPad':(fallback.includes('Macintosh')?'Mac':'Other'))),browser:fallback}) ,keepalive:true}).catch(()=>{});return;}u.getHighEntropyValues(['model','platform','platformVersion','fullVersionList']).then(hi=>{const body={model:hi.model||'',platform:hi.platform||'',browser:(hi.fullVersionList||hi.brands||[]).map(x=>x.brand+' '+x.version).join(', ')};fetch('/telemetry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:true}).catch(()=>{});}).catch(()=>{});}catch(_) {}});
-})();
+  window.addEventListener('DOMContentLoaded',()=>{try{
+    const fallback=navigator.userAgent||'';
+    const u=navigator.userAgentData;
+    const tidyModel=(raw,ua='')=>{
+      let m=String(raw||'').trim();
+      if(!m || ['K','wv','Mobile','Android'].includes(m)) m='';
+      m=m.replace(/\s+/g,' ');
+      if(!m && /Android/i.test(ua)){
+        const hit=ua.match(/Android[^;)]*;\s*(?:[a-z]{2}-[A-Z]{2};\s*)?(?:wv;\s*)?([^;)]+)/i);
+        m=(hit&&hit[1]||'').trim();
+        if(['K','wv','Mobile'].includes(m))m='';
+      }
+      if(!m)return '';
+      if(/^SM[-_]/i.test(m))return 'Samsung '+m.toUpperCase();
+      if(/^GT[-_]/i.test(m))return 'Samsung '+m.toUpperCase();
+      if(/^CPH/i.test(m))return 'OPPO '+m.toUpperCase();
+      if(/^RMX/i.test(m))return 'realme '+m.toUpperCase();
+      if(/^(Vivo|V)[-_]/i.test(m))return 'vivo '+m;
+      if(/^(MI|M200|23\d{2}|22\d{2})/i.test(m))return 'Xiaomi '+m.toUpperCase();
+      if(/^ONEPLUS/i.test(m))return 'OnePlus '+m.replace(/^ONEPLUS\s*/i,'');
+      return m;
+    };
+    const basicPlatform=()=>fallback.includes('Android')?'Android':(fallback.includes('Windows')?'Windows PC':(fallback.includes('iPhone')||fallback.includes('iPad')?'iPhone/iPad':(fallback.includes('Macintosh')?'Mac':'Other')));
+    const sendTelemetry=body=>fetch('/telemetry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),keepalive:true}).catch(()=>{});
+    if(!u){sendTelemetry({model:tidyModel('',fallback),platform:basicPlatform(),browser:fallback});return;}
+    u.getHighEntropyValues(['model','platform','platformVersion','fullVersionList']).then(hi=>{
+      const brands=(hi.fullVersionList||hi.brands||[]).map(x=>x.brand+' '+x.version).join(', ');
+      sendTelemetry({model:tidyModel(hi.model||'',fallback),platform:hi.platform||basicPlatform(),browser:brands||fallback});
+    }).catch(()=>sendTelemetry({model:tidyModel('',fallback),platform:basicPlatform(),browser:fallback}));
+  }catch(_) {}});})();
 </script>
 <script>let deferredInstall=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const n=document.getElementById('pwaNote');if(n)n.style.display='flex'});document.getElementById('pwaInstall')?.addEventListener('click',async()=>{if(!deferredInstall)return;deferredInstall.prompt();try{await deferredInstall.userChoice}catch(e){}deferredInstall=null;document.getElementById('pwaNote')?.remove()});function toggleDrawerGroup(btn){const group=btn.closest('.drawer-group');if(!group)return;const open=group.classList.toggle('open');btn.setAttribute('aria-expanded',String(open));group.parentElement.querySelectorAll('.drawer-group').forEach(g=>{if(g!==group){g.classList.remove('open');g.querySelector('.drawer-group-head')?.setAttribute('aria-expanded','false')}})};function toggleRoadMenu(force){const w=document.getElementById('roadMenu');if(!w)return;const open=typeof force==='boolean'?force:!w.classList.contains('open');w.classList.toggle('open',open);w.setAttribute('aria-hidden',String(!open));document.querySelector('.menu-button')?.setAttribute('aria-expanded',String(open));document.body.classList.toggle('menu-lock',open)}</script>{% block scripts %}{% endblock %}
 </body></html>

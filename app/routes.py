@@ -80,12 +80,15 @@ def telemetry():
     model=str(data.get('model','') or '')[:120]
     platform=str(data.get('platform','') or '')[:120]
     browser=str(data.get('browser','') or '')[:200]
-    db=get_db()
-    db.execute(
-        "UPDATE visits SET device_model=COALESCE(NULLIF(?, ''), device_model), platform=COALESCE(NULLIF(?, ''), platform), browser=COALESCE(NULLIF(?, ''), browser) WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)",
-        (model, platform, browser, key)
-    )
-    db.commit()
+    try:
+        db=get_db()
+        db.execute(
+            "UPDATE visits SET device_model=CASE WHEN ? <> '' THEN ? ELSE device_model END, platform=CASE WHEN ? <> '' THEN ? ELSE platform END, browser=CASE WHEN ? <> '' THEN ? ELSE browser END WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)",
+            (model, model, platform, platform, browser, browser, key)
+        )
+        db.commit()
+    except Exception:
+        current_app.logger.exception('Telemetry persistence failed')
     return jsonify(ok=True)
 
 @bp.post('/client-error')
