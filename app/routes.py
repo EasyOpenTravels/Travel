@@ -1314,7 +1314,7 @@ def my_stuff_card_download(card_id):
     image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
     out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
     safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title']).strip('-')[:55] or 'quick-card'
-    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png',max_age=0)
 
 @bp.post('/my-stuff/card/<int:card_id>/delete')
 def my_stuff_card_delete(card_id):
@@ -1364,9 +1364,14 @@ def my_stuff_color_cards():
     use_count=int(user['stuff_card_uses'] or 0)
     has_id=_stuff_id_ready(user)
     if not has_id and use_count > 5:
-        return render_template('my_color_cards.html',user=user,cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall(),card_locked=True,card_use_count=use_count)
+        _cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+        import base64 as _b64
+        qr_b64=_b64.b64encode(make_qr_bytes(url_for('public.home', _external=True))).decode('ascii')
+        return render_template('my_color_cards.html',user=user,cards=_cards,card_locked=True,card_use_count=use_count,qr_b64=qr_b64)
     cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
-    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=use_count)
+    import base64 as _b64
+    qr_b64=_b64.b64encode(make_qr_bytes(url_for('public.home', _external=True))).decode('ascii')
+    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=use_count,qr_b64=qr_b64)
 
 @bp.post('/my-stuff/color-card/save')
 def my_stuff_color_card_save():
@@ -1396,7 +1401,7 @@ def my_stuff_color_card_save():
     allowed_fonts={'bold','soft','mono','hand','serif','display','light','wide','typewriter','comic','caps','elegant'}
     allowed_shapes={'sticky','rounded','ticket','cloud','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}
     allowed_designs={'sunny','pastel','marker','minimal','night','playful'}
-    allowed_backgrounds={'solid','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}
+    allowed_backgrounds={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}
     allowed_decos={'spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'}
     allowed_align={'left','center','right'}
     allowed_border={'classic','thin','dashed','double','none'}
