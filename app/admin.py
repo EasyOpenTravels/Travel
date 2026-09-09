@@ -284,6 +284,7 @@ def backup():
     db_path=current_app.config['DATABASE_PATH']; upload=current_app.config['UPLOAD_FOLDER']; buf=io.BytesIO()
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
         z.write(db_path,'database/adventures.sqlite3')
+        z.writestr('database/README.txt','Open Road system database: database/adventures.sqlite3\nThe restore tool also accepts older/root-level SQLite backup layouts.')
         if os.path.isdir(upload):
             for path in pathlib.Path(upload).rglob('*'):
                 if path.is_file(): z.write(path,'uploads/'+path.relative_to(upload).as_posix())
@@ -300,12 +301,36 @@ def restore():
         f.save(temp_zip)
         with zipfile.ZipFile(temp_zip) as z:
             names=z.namelist()
-            if 'database/adventures.sqlite3' not in names: raise ValueError('The backup does not contain the system database.')
             for name in names:
                 p=pathlib.PurePosixPath(name)
                 if p.is_absolute() or '..' in p.parts: raise ValueError('Unsafe backup path.')
+            # Accept the canonical backup path and older/root-level database packages.
+            candidates=[]
+            preferred={
+                'database/adventures.sqlite3', 'database/system.sqlite3',
+                'database/adventures.db', 'database/system.db',
+                'adventures.sqlite3', 'system.sqlite3', 'adventures.db', 'system.db'
+            }
+            for name in names:
+                norm=name.replace('\\','/').lstrip('./')
+                if norm in preferred:
+                    candidates.append(norm)
+            if not candidates:
+                for name in names:
+                    norm=name.replace('\\','/').lstrip('./')
+                    if norm.lower().endswith(('.sqlite3','.sqlite','.db')):
+                        candidates.append(norm)
+            if not candidates:
+                raise ValueError('The backup does not contain the system database.')
             z.extractall(temp_dir)
-        restored=os.path.join(temp_dir,'database','adventures.sqlite3'); test=sqlite3.connect(restored); result=test.execute('PRAGMA integrity_check').fetchone()[0]; test.executescript(SCHEMA); test.commit(); test.close()
+        restored=os.path.join(temp_dir, candidates[0].replace('/', os.sep))
+        test=sqlite3.connect(restored)
+        result=test.execute('PRAGMA integrity_check').fetchone()[0]
+        tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        required={'users','settings'}
+        if not required.issubset(tables):
+            test.close(); raise ValueError('The selected database is not a valid Open Road system database.')
+        test.executescript(SCHEMA); test.commit(); test.close()
         if result!='ok': raise ValueError('Database integrity check failed.')
         conn=get_db(); conn.close(); shutil.copy2(restored,current_app.config['DATABASE_PATH'])
         restore_upload=os.path.join(temp_dir,'uploads')
