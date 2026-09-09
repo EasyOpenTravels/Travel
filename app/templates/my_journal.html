@@ -1,4 +1,7 @@
 {% extends 'base.html' %}{% block content %}
+<style>
+.journal-v4-story-row{display:grid;grid-template-columns:minmax(0,1fr) 30px;gap:5px;align-items:center}.journal-v4-story-delete{margin:0}.journal-v4-story-delete button{width:28px;height:28px;border:0;border-radius:9px;background:#fff0f1;color:#b53645;font-size:18px;font-weight:900;line-height:1;cursor:pointer}.journal-v4-story-delete button:active{transform:scale(.94)}
+</style>
 <div class="journal-v4">
   <header class="journal-v4-top">
     <a class="journal-v4-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
@@ -10,7 +13,10 @@
     <a class="journal-v4-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New memory</a>
     <div class="journal-v4-story-list">
       {% for j in journals %}
-      <a class="journal-v4-story {{ 'active' if entry and entry.id==j.id else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id) }}"><i class="{{ j.cover_color }}"></i><div><b>{{ j.title }}</b><small>{{ j.mood|title }} · {{ j.updated_at }}</small></div></a>
+      <div class="journal-v4-story-row">
+        <a class="journal-v4-story {{ 'active' if entry and entry.id==j.id else '' }}" href="{{ url_for('public.my_stuff_journal',entry=j.id) }}"><i class="{{ j.cover_color }}"></i><div><b>{{ j.title }}</b><small>{{ j.mood|title }} · {{ j.updated_at }}</small></div></a>
+        <form class="journal-v4-story-delete" method="post" action="{{ url_for('public.my_stuff_journal_delete',entry_id=j.id) }}" onsubmit="return confirm('Delete this journal story? This cannot be undone.');"><button type="submit" aria-label="Delete {{ j.title }}">×</button></form>
+      </div>
       {% else %}<p class="journal-v4-empty">Your stories will appear here.</p>{% endfor %}
     </div>
     <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Journal settings</a>
