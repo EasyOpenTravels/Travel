@@ -304,6 +304,7 @@ def init_db(app):
                 'qr_enabled': "ALTER TABLE stuff_cards ADD COLUMN qr_enabled INTEGER NOT NULL DEFAULT 1",
                 'signature_enabled': "ALTER TABLE stuff_cards ADD COLUMN signature_enabled INTEGER NOT NULL DEFAULT 1",
                 'decoration': "ALTER TABLE stuff_cards ADD COLUMN decoration TEXT NOT NULL DEFAULT 'spark'",
+                'background_style': "ALTER TABLE stuff_cards ADD COLUMN background_style TEXT NOT NULL DEFAULT 'solid'",
             },
             'event_ticket_events': {
                 'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',

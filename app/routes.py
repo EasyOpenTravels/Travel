@@ -88,11 +88,12 @@ def client_error():
     data=request.get_json(silent=True) or {}
     db=get_db(); key=request.cookies.get('visitor_key','')
     uid=session.get('user_id')
+    page=str(data.get('page') or request.referrer or request.path)[:500]
     message=str(data.get('message','Client-side error'))[:4000]
     kind=str(data.get('kind','ClientError'))[:100]
     extra='source='+str(data.get('source',''))[:300]+' line='+str(data.get('line',''))[:20]+' column='+str(data.get('column',''))[:20]
     stack=str(data.get('stack',''))[:10000]
-    db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(now(),0,request.path,request.method,kind,message,extra+'\n'+stack,uid,key,request.headers.get('User-Agent','')[:600],_request_ip())); db.commit()
+    db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(now(),0,page,request.method,kind,message,extra+'\n'+stack,uid,key,request.headers.get('User-Agent','')[:600],_request_ip())); db.commit()
     return jsonify(ok=True)
 
 @bp.get('/')
@@ -1032,7 +1033,7 @@ def my_stuff_card_save():
     if not _cards_allowed(user):
         flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
     db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
-    font_style=request.form.get('font_style','bold').strip().lower(); shape_style=request.form.get('shape_style','sticky').strip().lower(); design_style=request.form.get('design_style','sunny').strip().lower()
+    font_style=request.form.get('font_style','bold').strip().lower(); shape_style=request.form.get('shape_style','sticky').strip().lower(); design_style=request.form.get('design_style','sunny').strip().lower(); background_style=request.form.get('background_style','solid').strip().lower()
     # QR is mandatory on exported cards; the user may only choose the optional brand footer.
     qr_enabled=1
     signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
@@ -1045,15 +1046,16 @@ def my_stuff_card_save():
     if font_style not in allowed_fonts: font_style='bold'
     if shape_style not in allowed_shapes: shape_style='sticky'
     if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
+    if background_style not in {'solid','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}: background_style='solid'
     if decoration not in allowed_decoration: decoration='spark'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
     if not body and not title:
         flash('Write a topic or body on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
     after_save=request.form.get('after_save','').strip().lower()
     if card_id:
-        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,decoration=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,decoration,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,qr_enabled=?,signature_enabled=?,decoration=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
     else:
-        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,decoration,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,decoration,now(),now())); msg='Card saved.'; saved_id=int(cur.lastrowid)
+        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,now(),now())); msg='Card saved.'; saved_id=int(cur.lastrowid)
     db.commit(); flash(msg,'success')
     wants_json='application/json' in request.headers.get('Accept','') or request.headers.get('X-Requested-With')=='XMLHttpRequest'
     if after_save == 'png':
@@ -1084,10 +1086,38 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
     font_style=getattr(card,'_export_font','bold') or 'bold'
     shape=getattr(card,'_export_shape','sticky') or 'sticky'
     design=getattr(card,'_export_design','sunny') or 'sunny'
+    background=getattr(card,'_export_background','solid') or 'solid'
     decoration=getattr(card,'_export_decoration','spark') or 'spark'
     bgc=tuple(int(bg.lstrip('#')[i:i+2],16) for i in (0,2,4)); inkc=tuple(int(ink.lstrip('#')[i:i+2],16) for i in (0,2,4)); acc=tuple(int(accent.lstrip('#')[i:i+2],16) for i in (0,2,4))
-    if design=='night': bgc,inkc,acc=(23,35,43),(248,251,250),(121,225,211)
+    if design=='night': inkc,acc=(248,251,250),(121,225,211)
+    if background=='dark': bgc,inkc=(37,49,58),(248,251,250)
     img=Image.new('RGB',(W,H),(245,245,239)); d=ImageDraw.Draw(img)
+    bg_overlays={
+        'gradient':((255,255,255),(210,245,235)),
+        'sunset':((255,210,150),(205,170,255)),
+        'ocean':((165,235,255),(105,150,220)),
+        'paper':((255,255,250),(235,240,230)),
+        'dark':((28,40,48),(15,24,30)),
+        'cream':((255,249,223),(245,237,206)),
+        'lavender':((241,233,255),(220,207,255)),
+        'mintwash':((234,255,247),(200,241,224))
+    }
+    if background in bg_overlays:
+        a,b=bg_overlays[background]
+        for yy in range(H):
+            t=yy/max(1,H-1); col=tuple(int(a[i]*(1-t)+b[i]*t) for i in range(3)); d.line((0,yy,W,yy),fill=col)
+    elif background=='grid':
+        d.rectangle((0,0,W,H),fill=(247,247,242))
+        for x in range(0,W,55): d.line((x,0,x,H),fill=(220,225,221),width=1)
+        for y2 in range(0,H,55): d.line((0,y2,W,y2),fill=(220,225,221),width=1)
+    elif background=='dots':
+        d.rectangle((0,0,W,H),fill=(247,249,245))
+        for yy in range(20,H,36):
+            for xx in range(20,W,36): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=(205,213,209))
+    elif background=='aurora':
+        d.rectangle((0,0,W,H),fill=(238,246,241))
+        d.ellipse((-240,-180,700,700),fill=(180,245,224))
+        d.ellipse((930,400,1800,1150),fill=(195,175,255))
     # soft playful background to match the live card stage
     if design in {'sunny','playful','pastel'}:
         d.ellipse((-180,-140,500,500),fill=tuple(min(255,c+10) for c in bgc))
@@ -1130,6 +1160,38 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         d.rectangle((150,270,1450,900),fill=bgc,outline=inkc,width=7); d.ellipse((150,10,1450,510),fill=bgc,outline=inkc,width=7)
     else:
         d.rounded_rectangle(box,radius=26,fill=bgc,outline=inkc,width=7)
+    # Independent card background styling: keep Colour as the base tone while the
+    # Background choice adds its own visual treatment.  This is deliberately
+    # applied after the shape is drawn so the live editor and PNG have the same feel.
+    bg_tints={
+        'gradient':((255,255,255),.34),'sunset':((255,165,185),.48),'ocean':((100,195,235),.45),
+        'paper':((250,248,235),.42),'grid':((235,240,236),.46),'dots':((246,248,244),.36),
+        'aurora':((190,180,250),.42),'dark':((24,34,42),.72),'cream':((255,247,215),.42),
+        'lavender':((226,214,255),.42),'mintwash':((208,248,229),.42)
+    }
+    if background in bg_tints:
+        tint,alpha=bg_tints[background]
+        # Paint a soft transparent tint layer with the same shape footprint.
+        layer=Image.new('RGBA',(W,H),(0,0,0,0)); ld=ImageDraw.Draw(layer)
+        fill=tuple(tint)+(int(255*alpha),)
+        if shape in {'circle','bubble'}: ld.ellipse(box,fill=fill)
+        elif shape in {'diagonal','slant','polygon','flag','ticketwide','cloud'}:
+            ld.polygon(pts if 'pts' in locals() else [(box[0],box[1]),(box[2],box[1]),(box[2],box[3]),(box[0],box[3])],fill=fill)
+        elif shape=='pill': ld.rounded_rectangle(box,radius=400,fill=fill)
+        elif shape=='rounded': ld.rounded_rectangle(box,radius=90,fill=fill)
+        elif shape=='ticket': ld.rounded_rectangle(box,radius=28,fill=fill)
+        elif shape in {'stamp','softbox','wavy'}: ld.rounded_rectangle(box,radius=45,fill=fill)
+        elif shape=='arch': ld.rectangle((150,270,1450,900),fill=fill); ld.ellipse((150,10,1450,510),fill=fill)
+        elif shape=='diary': ld.rounded_rectangle(box,radius=24,fill=fill)
+        elif shape=='note': ld.rectangle(box,fill=fill)
+        else: ld.rounded_rectangle(box,radius=26,fill=fill)
+        img=Image.alpha_composite(img.convert('RGBA'),layer).convert('RGB'); d=ImageDraw.Draw(img)
+        if background=='grid':
+            for x in range(175,1430,55): d.line((x,120,x,880),fill=(20,33,30),width=1)
+            for yy in range(140,880,55): d.line((180,yy,1420,yy),fill=(20,33,30),width=1)
+        elif background=='dots':
+            for yy in range(145,875,42):
+                for xx in range(180,1425,42): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=(80,90,86))
     font_map={
         'bold':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         'soft':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
@@ -1197,6 +1259,7 @@ def my_stuff_card_download(card_id):
             self._export_font=r['font_style'] if 'font_style' in r.keys() else 'bold'
             self._export_shape=r['shape_style'] if 'shape_style' in r.keys() else 'sticky'
             self._export_design=r['design_style'] if 'design_style' in r.keys() else 'sunny'
+            self._export_background=r['background_style'] if 'background_style' in r.keys() else 'solid'
             self._export_qr=bool(r['qr_enabled']) if 'qr_enabled' in r.keys() else True
             self._export_signature=bool(r['signature_enabled']) if 'signature_enabled' in r.keys() else True
             self._export_decoration=r['decoration'] if 'decoration' in r.keys() else 'spark'

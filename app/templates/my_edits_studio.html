@@ -2,7 +2,7 @@
 <style>
 .myed{min-height:calc(100dvh - 80px);height:100dvh;box-sizing:border-box;overflow-y:auto;overflow-x:hidden;padding:10px 12px 24px;background:linear-gradient(135deg,#fff5b7,#e9fff8 48%,#f4e9ff);color:#14211e;overflow:visible}.myed-compose textarea{box-sizing:border-box}
 .myed-head{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;max-width:1100px;margin:0 auto 8px}.myed-head a,.myed-head button{border:2px solid #14211e;border-radius:12px;padding:8px 12px;font-size:11px;font-weight:900;box-shadow:3px 3px 0 #14211e;cursor:pointer}.myed-head a{background:#63e69a}.myed-head button{background:#ffe36a}.myed-title{text-align:center;font-size:15px;font-weight:900}
-.myed-layout{max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:10px}.myed-main{background:rgba(255,255,255,.82);border:2px solid #b9d8c9;border-radius:18px;padding:9px}.myed-stage{min-height:48vh;display:grid;place-items:center;position:relative;background:#fbfff9;border:2px dashed #bdd8ca;border-radius:16px;overflow:hidden;padding:12px}.myed-card{position:relative;width:min(76%,620px);aspect-ratio:1.52;display:flex;flex-direction:column;justify-content:center;padding:30px 34px;border:3px solid #14211e;box-shadow:12px 12px 0 #14211e;color:#14211e}.myed-card.yellow{background:#ffe36a}.myed-card.blue{background:#aecbff}.myed-card.pink{background:#ffc0d4}.myed-card.aqua{background:#91e4d8}.myed-card.lime{background:#dff47a}.myed-card.orange{background:#ffc181}.myed-card.teal{background:#7ed9cd}.myed-card.white{background:#fffef8}.myed-card.sticky{border-radius:10px;transform:rotate(-1deg)}.myed-card.rounded{border-radius:34px}.myed-card.ticket{border-radius:18px}.myed-card.cloud{border-radius:44% 56% 48% 52%/35% 42% 58% 65%}.myed-card.note{border-radius:4px;background-image:repeating-linear-gradient(to bottom,transparent 0 31px,rgba(20,33,30,.07) 32px 33px)}.myed-card.arch{border-radius:160px 160px 18px 18px}.myed-card.soft h2{font-family:Georgia,serif}.myed-card.hand h2{font-family:'Trebuchet MS',cursive}.myed-card.mono h2{font-family:ui-monospace,monospace}.myed-card.serif h2{font-family:Georgia,serif}.myed-card.display h2{font-family:'Arial Black',Impact,sans-serif;letter-spacing:-.055em}.myed-card.light h2{font-family:'Trebuchet MS',sans-serif;font-weight:400;letter-spacing:-.02em}.myed-card.wide h2{font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:.035em;text-transform:uppercase}.myed-card.typewriter h2{font-family:'Courier New',monospace;letter-spacing:-.02em}.myed-card.comic h2{font-family:'Comic Sans MS','Trebuchet MS',cursive}.myed-card.caps h2{font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:.08em}.myed-card.elegant h2{font-family:Georgia,serif;font-style:italic;font-weight:500}.myed-card.sunny{box-shadow:12px 12px 0 #14211e}.myed-card.pastel{box-shadow:10px 10px 0 rgba(20,33,30,.18)}.myed-card h2{font-size:clamp(28px,4.5vw,58px);line-height:.98;margin:9px 0 11px;letter-spacing:-.04em;max-width:92%}.myed-card p{font-size:15px;line-height:1.4;white-space:pre-wrap;max-width:86%;margin:0}.myed-deco{position:absolute;right:22px;top:16px;font-size:26px}.myed-brand{position:absolute;left:22px;bottom:16px;font-size:8px;font-weight:900;letter-spacing:.11em;display:none}.myed-qr{position:absolute;right:20px;bottom:14px;width:52px;height:52px;background:#fff;padding:3px;border-radius:6px;display:grid;place-items:center}.myed-qr img{width:100%;height:100%;display:block}
+.myed-layout{max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:10px}.myed-main{background:rgba(255,255,255,.82);border:2px solid #b9d8c9;border-radius:18px;padding:9px}.myed-stage{min-height:48vh;display:grid;place-items:center;position:relative;background:#fbfff9;border:2px dashed #bdd8ca;border-radius:16px;overflow:hidden;padding:12px}.myed-card{position:relative;width:min(76%,620px);aspect-ratio:1.52;display:flex;flex-direction:column;justify-content:center;padding:30px 34px;border:3px solid #14211e;box-shadow:12px 12px 0 #14211e;color:#14211e;background-color:var(--myed-bg-color,#ffe36a);background-image:var(--myed-bg-image,none);background-size:cover;background-position:center;background-repeat:no-repeat}.myed-card h2{font-family:var(--myed-font-family,Arial,sans-serif);font-weight:var(--myed-font-weight,800)}.myed-card.yellow{background:#ffe36a}.myed-card.blue{background:#aecbff}.myed-card.pink{background:#ffc0d4}.myed-card.aqua{background:#91e4d8}.myed-card.lime{background:#dff47a}.myed-card.orange{background:#ffc181}.myed-card.teal{background:#7ed9cd}.myed-card.white{background:#fffef8}.myed-card.sticky{border-radius:10px;transform:rotate(-1deg)}.myed-card.rounded{border-radius:34px}.myed-card.ticket{border-radius:18px}.myed-card.cloud{border-radius:44% 56% 48% 52%/35% 42% 58% 65%}.myed-card.note{border-radius:4px;background-image:repeating-linear-gradient(to bottom,transparent 0 31px,rgba(20,33,30,.07) 32px 33px)}.myed-card.arch{border-radius:160px 160px 18px 18px}.myed-card.soft h2{font-family:Georgia,serif}.myed-card.hand h2{font-family:'Trebuchet MS',cursive}.myed-card.mono h2{font-family:ui-monospace,monospace}.myed-card.serif h2{font-family:Georgia,serif}.myed-card.display h2{font-family:'Arial Black',Impact,sans-serif;letter-spacing:-.055em}.myed-card.light h2{font-family:'Trebuchet MS',sans-serif;font-weight:400;letter-spacing:-.02em}.myed-card.wide h2{font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:.035em;text-transform:uppercase}.myed-card.typewriter h2{font-family:'Courier New',monospace;letter-spacing:-.02em}.myed-card.comic h2{font-family:'Comic Sans MS','Trebuchet MS',cursive}.myed-card.caps h2{font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:.08em}.myed-card.elegant h2{font-family:Georgia,serif;font-style:italic;font-weight:500}.myed-card.marker{border-style:dashed;box-shadow:7px 9px 0 #14211e}.myed-card.minimal{box-shadow:4px 4px 0 rgba(20,33,30,.12);border-width:2px}.myed-card.night{border-color:#dce9e7;box-shadow:9px 9px 0 #122027}.myed-card.playful{transform:rotate(-.6deg);box-shadow:8px 10px 0 rgba(20,33,30,.28)}.myed-card.sunny{box-shadow:12px 12px 0 #14211e}.myed-card.pastel{box-shadow:10px 10px 0 rgba(20,33,30,.18)}.myed-card h2{font-size:clamp(28px,4.5vw,58px);line-height:.98;margin:9px 0 11px;letter-spacing:-.04em;max-width:92%}.myed-card p{font-size:15px;line-height:1.4;white-space:pre-wrap;max-width:86%;margin:0}.myed-deco{position:absolute;right:22px;top:16px;font-size:26px}.myed-brand{position:absolute;left:22px;bottom:16px;font-size:8px;font-weight:900;letter-spacing:.11em;display:none}.myed-qr{position:absolute;right:20px;bottom:14px;width:52px;height:52px;background:#fff;padding:3px;border-radius:6px;display:grid;place-items:center}.myed-qr img{width:100%;height:100%;display:block}
 .myed-tools{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px;position:relative;z-index:20;overflow:visible}.myed-finish-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"finish actions" "compose compose";gap:8px;align-items:stretch;margin-top:8px;max-width:100%;position:relative;z-index:10;overflow:visible}.myed-finish-tool{margin:0;grid-area:finish}.myed-actions{grid-area:actions;display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:nowrap;padding:0;background:transparent}.myed-actions button{border:2px solid #14211e;border-radius:10px;padding:8px 9px;font-size:10px;font-weight:900;white-space:nowrap;box-shadow:3px 3px 0 #14211e;cursor:pointer;min-height:34px}.myed-actions .save{background:#63e69a}.myed-actions .png{background:#ffe36a}.myed-more{touch-action:manipulation;-webkit-tap-highlight-color:transparent}.myed-finish-tool{min-width:0}.myed-finish-tool .myed-picks{align-items:center}.myed-tool{background:#fff;border:1px solid #c9dbd2;border-radius:13px;padding:8px}.myed-tool strong{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.09em;margin-bottom:6px}.myed-picks{display:flex;gap:5px;flex-wrap:wrap}.myed-picks label{cursor:pointer}.myed-picks input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}.sw{display:block;width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px #c8d6cf}.sw.yellow{background:#ffe36a}.sw.blue{background:#aecbff}.sw.pink{background:#ffc0d4}.sw.aqua{background:#91e4d8}.sw.lime{background:#dff47a}.sw.orange{background:#ffc181}.sw.teal{background:#7ed9cd}.sw.white{background:#fff}.myed-picks input:checked+.sw{outline:2px solid #14211e;outline-offset:2px}.chip{display:inline-block;border:1px solid #cbdad2;border-radius:999px;padding:5px 7px;font-size:8px;font-weight:900}.myed-picks input:checked+.chip{background:#14211e;color:#fff}
 .myed-compose{grid-area:compose;width:min(82%,680px);margin:0 auto;background:#fff;border:2px solid #b9d8c9;border-radius:14px;padding:7px}.myed-inputrow{display:block}.myed-compose textarea{display:block;width:min(92%,520px);margin:4px auto 0;height:62px;min-height:62px;max-height:110px;resize:vertical;border:1px solid #cadbd3;border-radius:10px;padding:9px 10px;font-size:14px;color:#14211e;background:#fbfdfc}.myed-compose-note{font-size:8px;color:#6d7c75;margin-top:5px;text-align:center}
 .myed-projects{background:#fff;border:2px solid #b9d8c9;border-radius:16px;padding:9px;max-height:calc(100dvh - 120px);overflow:auto}.myed-projects-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.myed-projects-head b{font-size:9px;letter-spacing:.1em}.project{width:100%;display:grid;grid-template-columns:9px 1fr auto;gap:6px;align-items:center;border:1px solid #d7e4de;background:#fbfdfb;border-radius:10px;padding:7px;margin-bottom:5px;cursor:pointer;text-align:left}.project .dot{width:8px;height:8px;border-radius:50%}.project b{font-size:9px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project small{font-size:7px;color:#708078}.project button{border:0;background:transparent;font-size:8px;font-weight:900}.myed-footer-space{height:1cm}
@@ -16,6 +16,41 @@
 .myed-finish-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"controls finish" "compose compose";gap:8px}.myed-inline-editor-controls{grid-area:controls;display:flex;align-items:center;gap:6px;min-width:0;align-self:stretch}.myed-inline-editor-controls .myed-write-mode{margin:0;justify-content:flex-start}.myed-finish-tool{grid-area:finish}.myed-compose{grid-area:compose;width:100%;max-width:none;margin:0}.myed-compose .myed-inputrow{display:block}.myed-compose textarea{width:min(92%,520px);margin:4px auto 0}.myed-write-mode button{position:relative;z-index:30;touch-action:manipulation}.myed-picks label{position:relative;z-index:2;touch-action:manipulation}
 @media(max-width:800px){.myed-head{grid-template-columns:auto minmax(0,1fr) auto;gap:6px}.myed-head-actions{gap:4px}.myed-head-actions .header-save{padding:7px 8px;font-size:9px}.myed-finish-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"controls finish" "compose compose";gap:6px}.myed-inline-editor-controls{gap:5px}.myed-finish-tool{min-width:0}.myed-finish-tool .myed-picks{justify-content:flex-start}.myed-compose{width:100%;max-width:none}.myed-compose textarea{width:92%}}
 </style>
+<style>
+@media (min-width:701px){
+  /* PC ONLY: keep the phone layout untouched and give desktop its own natural, scrollable workspace. */
+  body.personal-route-body{overflow-x:hidden !important;overflow-y:auto !important;background:#0f1c23 !important;}
+  body.personal-route-body main{height:auto !important;min-height:100dvh !important;overflow:visible !important;}
+  .myed{height:auto !important;min-height:calc(100dvh - 64px);overflow:visible !important;padding:18px 28px 44px;}
+  .myed-head{max-width:1440px;margin-bottom:12px;}
+  .myed-title{font-size:17px;}
+  .myed-layout{max-width:1440px;grid-template-columns:minmax(0,1fr) 310px;gap:14px;align-items:start;}
+  .myed-main{padding:12px;border-radius:20px;}
+  .myed-stage{min-height:clamp(470px,61vh,780px);padding:18px;overflow:visible;}
+  .myed-card{width:min(70%,760px);padding:42px 48px;}
+  .myed-card h2{font-size:clamp(34px,4vw,68px);}
+  .myed-card p{font-size:17px;}
+  .myed-tools{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:10px;}
+  .myed-tool{min-width:0;padding:10px;border-radius:14px;}
+  .myed-picks{gap:6px;}
+  .myed-picks .chip{font-size:9px;padding:6px 9px;}
+  .sw{width:24px;height:24px;}
+  .myed-finish-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"finish actions" "compose compose";gap:10px;margin-top:10px;}
+  .myed-inline-editor-controls{grid-area:finish;display:flex;align-items:center;}
+  .myed-write-mode{justify-content:flex-start;margin:0;gap:6px;}
+  .myed-write-mode button{padding:7px 11px;font-size:9px;}
+  .myed-actions button{padding:9px 12px;font-size:10px;min-height:36px;}
+  .myed-compose{width:min(100%,900px);padding:9px;}
+  .myed-compose textarea{width:min(100%,760px);height:86px;min-height:86px;max-height:180px;font-size:15px;}
+  .myed-compose-note{font-size:9px;}
+  .myed-projects{position:sticky;top:14px;max-height:calc(100dvh - 28px);padding:12px;}
+  .project{padding:9px;margin-bottom:6px;}
+  .project b{font-size:10px;}
+  .project small{font-size:8px;}
+  .myed-pop{max-height:360px;}
+}
+</style>
+
 <div class="myed">
   <div class="myed-head"><a href="{{ url_for('public.my_stuff') }}">My Stuff</a><div class="myed-head-actions" aria-label="Card actions"><button id="myedTopSave" type="button" class="header-save save" onclick="saveMyEdits('stay')" disabled>Save</button><button id="myedTopPng" type="button" class="header-save png" onclick="saveMyEdits('png')" disabled>Save + PNG</button></div><button type="button" onclick="document.getElementById('myedMenu').classList.add('open')">Menu</button></div>
   <div class="myed-layout">
@@ -24,26 +59,26 @@
       {% else %}
       <section class="myed-stage"><article id="myedCard" class="myed-card yellow sticky sunny"><h2 id="myedTitleOut">YOU GOT THIS.</h2><p id="myedBodyOut">Write something kind, useful, funny or encouraging.</p><span class="myed-deco" id="myedDeco">✦</span><span class="myed-brand" id="myedBrand">OPEN ROAD ADVENTURES</span><span class="myed-qr"><img src="data:image/png;base64,{{ qr_preview|b64encode }}" alt="Tiny QR"></span></article></section>
       <section class="myed-tools">
-        <div class="myed-tool"><div class="myed-tool-head"><strong>Colour</strong><button type="button" class="myed-more" >More</button></div><div class="myed-picks">{% for c in ['yellow','blue','pink','aqua','lime','orange','teal','white'] %}<label><input type="radio" name="color" value="{{c}}" {% if loop.first %}checked{% endif %}><i class="sw {{c}}"></i></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for c in ['red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'] %}<label><input type="radio" name="color" value="{{c}}"><i class="sw {{c}}"></i></label>{% endfor %}</div></div></div>
-        <div class="myed-tool"><div class="myed-tool-head"><strong>Style</strong><button type="button" class="myed-more" >More styles</button></div><div class="myed-picks">{% for v,n in [('bold','Bold'),('soft','Soft'),('hand','Hand'),('mono','Clean')] %}<label><input type="radio" name="font_style" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-style-label">Fonts</div><div class="myed-picks">{% for v,n in [('serif','Classic'),('display','Display'),('light','Light'),('wide','Wide'),('typewriter','Typewriter'),('comic','Playful'),('caps','Caps'),('elegant','Elegant')] %}<label><input type="radio" name="font_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-style-label">Looks</div><div class="myed-picks">{% for v,n in [('sunny','Sunny'),('pastel','Pastel'),('marker','Marker'),('minimal','Minimal'),('night','Night'),('playful','Playful')] %}<label><input type="radio" name="design_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
-        <div class="myed-tool"><div class="myed-tool-head"><strong>Shape</strong><button type="button" class="myed-more" >More</button></div><div class="myed-picks">{% for v,n in [('sticky','Sticky'),('rounded','Round'),('cloud','Cloud'),('ticket','Ticket'),('note','Paper'),('arch','Arch')] %}<label><input type="radio" name="shape_style" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for v,n in [('diagonal','Diagonal'),('pill','Pill'),('flag','Flag'),('slant','Slant'),('polygon','Polygon'),('ticketwide','Ticket Wide'),('wavy','Wavy'),('stamp','Stamp'),('circle','Circle'),('bubble','Bubble'),('softbox','Soft Box'),('diary','Diary')] %}<label><input type="radio" name="shape_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
-        <div class="myed-tool"><div class="myed-tool-head"><strong>Badge / Accent</strong><button type="button" class="myed-more" >More</button></div><div class="myed-picks">{% for v,n in [('spark','✦'),('sun','☼'),('moon','☾'),('heart','♡'),('bird','⌁'),('dots','•••'),('none','None')] %}<label><input type="radio" name="decoration" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for v,n in [('verified','✓ Blue celebrity'),('starblue','★ Blue star'),('checkblue','✓ Blue check'),('crownblue','♛ Blue crown'),('diamond','◆ Blue diamond'),('bolt','⚡ Blue bolt'),('burst','✹ Blue burst'),('seal','● Blue seal')] %}<label><input type="radio" name="decoration" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
+        <div class="myed-tool"><div class="myed-tool-head"><strong>Colour</strong><button type="button" class="myed-more" onclick="toggleEdPop(this)">More</button></div><div class="myed-picks">{% for c in ['yellow','blue','pink','aqua','lime','orange','teal','white'] %}<label><input type="radio" name="color" value="{{c}}" {% if loop.first %}checked{% endif %}><i class="sw {{c}}"></i></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for c in ['red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'] %}<label><input type="radio" name="color" value="{{c}}"><i class="sw {{c}}"></i></label>{% endfor %}</div></div></div>
+        <div class="myed-tool"><div class="myed-tool-head"><strong>Style</strong><button type="button" class="myed-more" onclick="toggleEdPop(this)">More styles</button></div><div class="myed-picks">{% for v,n in [('bold','Bold'),('soft','Soft'),('hand','Hand'),('mono','Clean')] %}<label><input type="radio" name="font_style" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-style-label">Fonts</div><div class="myed-picks">{% for v,n in [('serif','Classic'),('display','Display'),('light','Light'),('wide','Wide'),('typewriter','Typewriter'),('comic','Playful'),('caps','Caps'),('elegant','Elegant')] %}<label><input type="radio" name="font_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-style-label">Looks</div><div class="myed-picks">{% for v,n in [('sunny','Sunny'),('pastel','Pastel'),('marker','Marker'),('minimal','Minimal'),('night','Night'),('playful','Playful')] %}<label><input type="radio" name="design_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-style-label">Background</div><div class="myed-picks">{% for v,n in [('solid','Solid'),('gradient','Gradient'),('sunset','Sunset'),('ocean','Ocean'),('paper','Paper'),('grid','Grid'),('dots','Dots'),('aurora','Aurora'),('dark','Dark'),('cream','Cream'),('lavender','Lavender'),('mintwash','Mint wash')] %}<label><input type="radio" name="background_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
+        <div class="myed-tool"><div class="myed-tool-head"><strong>Shape</strong><button type="button" class="myed-more" onclick="toggleEdPop(this)">More</button></div><div class="myed-picks">{% for v,n in [('sticky','Sticky'),('rounded','Round'),('cloud','Cloud'),('ticket','Ticket'),('note','Paper'),('arch','Arch')] %}<label><input type="radio" name="shape_style" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for v,n in [('diagonal','Diagonal'),('pill','Pill'),('flag','Flag'),('slant','Slant'),('polygon','Polygon'),('ticketwide','Ticket Wide'),('wavy','Wavy'),('stamp','Stamp'),('circle','Circle'),('bubble','Bubble'),('softbox','Soft Box'),('diary','Diary')] %}<label><input type="radio" name="shape_style" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
+        <div class="myed-tool"><div class="myed-tool-head"><strong>Badge / Accent</strong><button type="button" class="myed-more" onclick="toggleEdPop(this)">More</button></div><div class="myed-picks">{% for v,n in [('spark','✦'),('sun','☼'),('moon','☾'),('heart','♡'),('bird','⌁'),('dots','•••'),('none','None')] %}<label><input type="radio" name="decoration" value="{{v}}" {% if loop.first %}checked{% endif %}><span class="chip">{{n}}</span></label>{% endfor %}</div><div class="myed-pop"><div class="myed-picks">{% for v,n in [('verified','✓ Blue celebrity'),('starblue','★ Blue star'),('checkblue','✓ Blue check'),('crownblue','♛ Blue crown'),('diamond','◆ Blue diamond'),('bolt','⚡ Blue bolt'),('burst','✹ Blue burst'),('seal','● Blue seal')] %}<label><input type="radio" name="decoration" value="{{v}}"><span class="chip">{{n}}</span></label>{% endfor %}</div></div></div>
       </section>
 
       <div class="myed-finish-row">
         <div class="myed-inline-editor-controls" aria-label="Writing controls"><div class="myed-write-mode"><button type="button" data-mode="topic" class="active" onclick="setWriteMode('topic')">Topic</button><button type="button" data-mode="body" onclick="setWriteMode('body')">Body</button></div></div>
         <div class="myed-tool myed-finish-tool"><div class="myed-picks"><label><input type="radio" name="signature_enabled" value="1" checked><span class="chip">Open Road</span></label><label><input type="radio" name="signature_enabled" value="0"><span class="chip">Clean card</span></label></div></div>
         <form class="myed-compose" id="myedForm" method="post" action="{{ url_for('public.my_stuff_card_save') }}">
-        <input type="hidden" name="card_id" id="myedCardId"><input type="hidden" name="title" id="myedTitle"><input type="hidden" name="color" id="myedColor"><input type="hidden" name="font_style" id="myedFont"><input type="hidden" name="shape_style" id="myedShape"><input type="hidden" name="design_style" id="myedDesign" value="sunny"><input type="hidden" name="qr_enabled" value="1"><input type="hidden" name="signature_enabled" id="myedSig"><input type="hidden" name="decoration" id="myedDecoration"><input type="hidden" name="after_save" id="myedAfter">
+        <input type="hidden" name="card_id" id="myedCardId"><input type="hidden" name="title" id="myedTitle"><input type="hidden" name="color" id="myedColor"><input type="hidden" name="font_style" id="myedFont"><input type="hidden" name="shape_style" id="myedShape"><input type="hidden" name="design_style" id="myedDesign" value="sunny"><input type="hidden" name="background_style" id="myedBackground" value="solid"><input type="hidden" name="qr_enabled" value="1"><input type="hidden" name="signature_enabled" id="myedSig"><input type="hidden" name="decoration" id="myedDecoration"><input type="hidden" name="after_save" id="myedAfter">
         <div class="myed-inputrow"><textarea id="myedBody" name="body" maxlength="420" placeholder="Write the topic / big line…"></textarea></div><div class="myed-compose-note">Your words become the card. The tiny QR is always included; the Open Road footer is optional.</div>
         </form>
       </div>
       {% endif %}
     </main>
-    <aside class="myed-projects"><div class="myed-projects-head"><b>MY CARDS</b><button type="button" onclick="document.getElementById('myedMenu').classList.add('open')">Menu</button></div>{% for c in cards %}<button class="project" type="button" onclick='loadMyEdits({{c.id}},{{c.title|tojson}},{{c.body|tojson}},{{c.color|tojson}},{{c.font_style|tojson}},{{c.shape_style|tojson}},{{c.design_style|tojson}},{{c.signature_enabled|int}},{{(c.decoration if "decoration" in c.keys() else "spark")|tojson}})'><span class="dot" style="background:{{ {'yellow':'#ffe36a','blue':'#aecbff','pink':'#ffc0d4','aqua':'#91e4d8','lime':'#dff47a','orange':'#ffc181','teal':'#7ed9cd','white':'#fff'} .get(c.color,'#ffe36a') }}"></span><span><b>{{c.title}}</b><small>Saved card</small></span><span>›</span></button>{% else %}<div style="padding:12px;font-size:9px;color:#738079">Saved cards will appear here.</div>{% endfor %}</aside>
+    <aside class="myed-projects"><div class="myed-projects-head"><b>MY CARDS</b><button type="button" onclick="document.getElementById('myedMenu').classList.add('open')">Menu</button></div>{% for c in cards %}<button class="project" type="button" onclick='loadMyEdits({{c.id}},{{c.title|tojson}},{{c.body|tojson}},{{c.color|tojson}},{{c.font_style|tojson}},{{c.shape_style|tojson}},{{c.design_style|tojson}},{{(c.background_style if 'background_style' in c.keys() else 'solid')|tojson}},{{c.signature_enabled|int}},{{(c.decoration if "decoration" in c.keys() else "spark")|tojson}})'><span class="dot" style="background:{{ {'yellow':'#ffe36a','blue':'#aecbff','pink':'#ffc0d4','aqua':'#91e4d8','lime':'#dff47a','orange':'#ffc181','teal':'#7ed9cd','white':'#fff'} .get(c.color,'#ffe36a') }}"></span><span><b>{{c.title}}</b><small>Saved card</small></span><span>›</span></button>{% else %}<div style="padding:12px;font-size:9px;color:#738079">Saved cards will appear here.</div>{% endfor %}</aside>
   </div><div class="myed-footer-space"></div>
 </div>
-<div class="myed-drawer" id="myedMenu"><div class="myed-shade" onclick="document.getElementById('myedMenu').classList.remove('open')"></div><aside class="myed-panel"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:10px">SAVED CARDS</b><button type="button" onclick="document.getElementById('myedMenu').classList.remove('open')" style="border:0;background:transparent;font-size:24px">×</button></div>{% for c in cards %}<button class="project" type="button" onclick='loadMyEdits({{c.id}},{{c.title|tojson}},{{c.body|tojson}},{{c.color|tojson}},{{c.font_style|tojson}},{{c.shape_style|tojson}},{{c.design_style|tojson}},{{c.signature_enabled|int}},{{(c.decoration if "decoration" in c.keys() else "spark")|tojson}});document.getElementById("myedMenu").classList.remove("open")'><span class="dot"></span><span><b>{{c.title}}</b><small>Saved card</small></span><span>Open</span></button>{% else %}<p style="font-size:10px;color:#718078">No cards yet.</p>{% endfor %}</aside></div>
+<div class="myed-drawer" id="myedMenu"><div class="myed-shade" onclick="document.getElementById('myedMenu').classList.remove('open')"></div><aside class="myed-panel"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:10px">SAVED CARDS</b><button type="button" onclick="document.getElementById('myedMenu').classList.remove('open')" style="border:0;background:transparent;font-size:24px">×</button></div>{% for c in cards %}<button class="project" type="button" onclick='loadMyEdits({{c.id}},{{c.title|tojson}},{{c.body|tojson}},{{c.color|tojson}},{{c.font_style|tojson}},{{c.shape_style|tojson}},{{c.design_style|tojson}},{{(c.background_style if 'background_style' in c.keys() else 'solid')|tojson}},{{c.signature_enabled|int}},{{(c.decoration if "decoration" in c.keys() else "spark")|tojson}});document.getElementById("myedMenu").classList.remove("open")'><span class="dot"></span><span><b>{{c.title}}</b><small>Saved card</small></span><span>Open</span></button>{% else %}<p style="font-size:10px;color:#718078">No cards yet.</p>{% endfor %}</aside></div>
 {% if card_locked %}<dialog id="editsCardId"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="edits-studio"><h2>Open Road ID</h2><p>Create your ID to keep saving cards.</p><input name="simple_id" minlength="4" maxlength="8" required><button>Create ID</button></form></dialog>{% endif %}
 {% endblock %}
 {% block scripts %}<script>
@@ -52,10 +87,11 @@ document.body.classList.add('personal-route-body');
   const body=document.getElementById('myedBody');
   if(!body)return;
   const card=document.getElementById('myedCard'), tout=document.getElementById('myedTitleOut'), bout=document.getElementById('myedBodyOut'), deco=document.getElementById('myedDeco'), brand=document.getElementById('myedBrand');
-  const hidTitle=document.getElementById('myedTitle'), hidId=document.getElementById('myedCardId'), hidColor=document.getElementById('myedColor'), hidFont=document.getElementById('myedFont'), hidShape=document.getElementById('myedShape'), hidDesign=document.getElementById('myedDesign'), hidSig=document.getElementById('myedSig'), hidDec=document.getElementById('myedDecoration'), after=document.getElementById('myedAfter');
+  const hidTitle=document.getElementById('myedTitle'), hidId=document.getElementById('myedCardId'), hidColor=document.getElementById('myedColor'), hidFont=document.getElementById('myedFont'), hidShape=document.getElementById('myedShape'), hidDesign=document.getElementById('myedDesign'), hidBackground=document.getElementById('myedBackground'), hidSig=document.getElementById('myedSig'), hidDec=document.getElementById('myedDecoration'), after=document.getElementById('myedAfter');
   const topSave=document.getElementById('myedTopSave'), topPng=document.getElementById('myedTopPng');
   let writeMode='topic',topicText='',bodyText='';
   const get=n=>document.querySelector('input[name='+n+']:checked')?.value||'';
+  const bgMap={solid:['none'],gradient:['linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.48))'],sunset:['linear-gradient(135deg,#ffd38a 0%,#ff9bb8 55%,#b39cff 100%)'],ocean:['linear-gradient(135deg,#9fe6ff 0%,#75c9dc 55%,#6e97d8 100%)'],paper:['repeating-linear-gradient(0deg,rgba(20,33,30,.055) 0 1px,transparent 1px 13px)'],grid:['linear-gradient(rgba(20,33,30,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(20,33,30,.08) 1px,transparent 1px)'],dots:['radial-gradient(rgba(20,33,30,.13) 1.1px,transparent 1.1px)'],aurora:['radial-gradient(circle at 20% 20%,rgba(119,236,216,.55),transparent 34%),radial-gradient(circle at 80% 80%,rgba(160,132,255,.50),transparent 38%)'],dark:['linear-gradient(135deg,#1d2930,#10181d)'],cream:['linear-gradient(135deg,#fff9df,#f5edce)'],lavender:['linear-gradient(135deg,#f0e9ff,#ddd0ff)'],mintwash:['linear-gradient(135deg,#eafff6,#c9f2e3)']};const fontMap={bold:['Arial,sans-serif','800'],soft:['Arial,sans-serif','500'],hand:['Georgia,serif','600'],mono:['ui-monospace,SFMono-Regular,Menlo,monospace','800'],serif:['Georgia,serif','700'],display:['Arial Black,Impact,sans-serif','900'],light:['Arial,sans-serif','400'],wide:['Arial Narrow,Arial,sans-serif','800'],typewriter:['Courier New,monospace','700'],comic:['Comic Sans MS,Trebuchet MS,cursive','800'],caps:['Arial,sans-serif','900'],elegant:['Georgia,serif','500']};
   const decoMap={spark:'✦',sun:'☼',moon:'☾',heart:'♡',bird:'⌁',dots:'•••',none:'',verified:'✓',starblue:'★',checkblue:'✓',crownblue:'♛',diamond:'◆',bolt:'⚡',burst:'✹',seal:'●'};
   const blueDecos=new Set(['verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal']);
   const hasTypedText=()=>Boolean((writeMode==='topic'?body.value:body.value).trim() || hidTitle.value.trim());
@@ -69,50 +105,80 @@ document.body.classList.add('personal-route-body');
     paint();
   };
   let openTool=null;
+  const closeOpen=()=>{
+    if(!openTool)return;
+    openTool.classList.remove('more-open');
+    openTool.querySelector('.myed-more')?.setAttribute('aria-expanded','false');
+    const pop=openTool.querySelector('.myed-pop');
+    if(pop){pop.style.removeProperty('left');pop.style.removeProperty('top');pop.style.removeProperty('width');}
+    openTool=null;
+  };
   const positionPop=tool=>{
     const btn=tool.querySelector('.myed-more'), pop=tool.querySelector('.myed-pop'); if(!btn||!pop)return;
-    pop.style.position='fixed';
-    pop.style.left='0px'; pop.style.right='auto'; pop.style.top='0px';
-    const r=btn.getBoundingClientRect(); const pw=Math.min(Math.max(tool.getBoundingClientRect().width-14,240),360);
-    pop.style.width=pw+'px';
-    const below=window.innerHeight-r.bottom-10; const ph=Math.min(pop.scrollHeight||190, Math.max(160, below));
-    const top=below>=150 ? r.bottom+5 : Math.max(8,r.top-Math.min(260,pop.scrollHeight||190)-5);
+    const r=btn.getBoundingClientRect();
+    const pw=Math.min(Math.max(tool.getBoundingClientRect().width-14,240),Math.min(380,window.innerWidth-16));
+    pop.style.position='fixed'; pop.style.width=pw+'px';
+    const measured=Math.min(pop.scrollHeight||190,420);
+    const below=window.innerHeight-r.bottom-10;
+    const top=below>=180 ? r.bottom+6 : Math.max(8,r.top-measured-6);
     const left=Math.min(Math.max(8,r.left),window.innerWidth-pw-8);
     pop.style.left=left+'px'; pop.style.top=top+'px';
   };
   window.toggleEdPop=btn=>{
     const tool=btn?.closest('.myed-tool'); if(!tool)return;
-    if(openTool&&openTool!==tool){openTool.classList.remove('more-open');openTool.querySelector('.myed-more')?.setAttribute('aria-expanded','false');}
-    const open=!tool.classList.contains('more-open');
-    tool.classList.toggle('more-open',open); btn.setAttribute('aria-expanded',String(open)); openTool=open?tool:null;
-    if(open){positionPop(tool); setTimeout(()=>positionPop(tool),0);}
+    if(openTool===tool){closeOpen();return;}
+    closeOpen();
+    tool.classList.add('more-open'); openTool=tool;
+    btn.setAttribute('aria-expanded','true');
+    positionPop(tool);
+    requestAnimationFrame(()=>positionPop(tool));
   };
-  document.addEventListener('pointerdown',e=>{
-    const more=e.target.closest('.myed-more');
-    if(more){e.preventDefault();e.stopPropagation();window.toggleEdPop(more);return;}
-    const label=e.target.closest('.myed-pop label');
-    if(label){const input=label.querySelector('input');if(input){e.preventDefault();input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));}return;}
-    if(openTool&&!e.target.closest('.myed-tool.more-open')){openTool.classList.remove('more-open');openTool.querySelector('.myed-more')?.setAttribute('aria-expanded','false');openTool=null;}
-  },true);
+  document.querySelectorAll('.myed-more').forEach(btn=>{
+    btn.setAttribute('aria-haspopup','true'); btn.setAttribute('aria-expanded','false');
+  });
+  document.addEventListener('click',e=>{
+    if(e.target.closest('.myed-more') || e.target.closest('.myed-pop'))return;
+    closeOpen();
+  });
   window.addEventListener('scroll',()=>openTool&&positionPop(openTool),true);
   window.addEventListener('resize',()=>openTool&&positionPop(openTool));
-  document.querySelectorAll('.myed-more').forEach(btn=>{btn.setAttribute('aria-haspopup','true');btn.setAttribute('aria-expanded','false');});
   document.addEventListener('change',e=>{
-    const input=e.target.closest('.myed-picks input');
+    const input=e.target.closest('.myed-pop input');
     if(!input)return;
-    const pop=input.closest('.myed-pop');
-    if(pop){const tool=pop.closest('.myed-tool'); if(tool&&openTool===tool){tool.classList.remove('more-open');input.closest('.myed-pop').style.display='none';tool.querySelector('.myed-more')?.setAttribute('aria-expanded','false');openTool=null;setTimeout(()=>input.closest('.myed-pop').style.display='',0);}}
+    closeOpen();
     paint();
   });
+  document.addEventListener('pointerup',e=>{
+    const label=e.target.closest('.myed-pop label');
+    if(!label)return;
+    const input=label.querySelector('input[type=radio]');
+    if(!input)return;
+    e.preventDefault();
+    input.checked=true;
+    input.dispatchEvent(new Event('change',{bubbles:true}));
+  },true);
+  document.addEventListener('keydown',e=>{
+    if((e.key==='Enter'||e.key===' ') && e.target.closest('.myed-pop label')){
+      const input=e.target.closest('label')?.querySelector('input[type=radio]');
+      if(input){e.preventDefault();input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))}
+    }
+  });
   function paint(){
-    const c=get('color')||'yellow', f=get('font_style')||'bold', sh=get('shape_style')||'sticky', look=get('design_style')||'sunny', d=get('decoration')||'spark', sig=get('signature_enabled')!=='0';
+    const c=get('color')||'yellow', f=get('font_style')||'bold', sh=get('shape_style')||'sticky', look=get('design_style')||'sunny', bg=get('background_style')||'solid', d=get('decoration')||'spark', sig=get('signature_enabled')!=='0';
     let title=writeMode==='topic'?(body.value.trim()||hidTitle.value.trim()):hidTitle.value.trim();
     let text=writeMode==='body'?body.value.trim():bodyText;
     if(writeMode==='topic')topicText=body.value.trim(); else bodyText=body.value.trim();
-    card.className='myed-card '+c+' '+f+' '+sh+' '+look+' '+(title&&!text?'title-only':'')+' '+(!title&&text?'body-only':'');
+    card.className='myed-card '+c+' '+sh+' '+look+' '+(title&&!text?'title-only':'')+' '+(!title&&text?'body-only':'');
+    const font=fontMap[f]||fontMap.bold, bgImage=(bgMap[bg]&&bgMap[bg][0])||'none';
+    const palette=getComputedStyle(card), swatch=document.querySelector('input[name=color]:checked + .sw');
+    const baseColor=swatch ? getComputedStyle(swatch).backgroundColor : '';
+    card.style.setProperty('--myed-font-family',font[0]); card.style.setProperty('--myed-font-weight',font[1]);
+    if(baseColor) card.style.setProperty('--myed-bg-color',baseColor);
+    card.style.setProperty('--myed-bg-image',bgImage);
+    if(bg==='dark') card.style.color='#fff'; else card.style.color='';
     tout.textContent=title||''; bout.textContent=text||'';
     deco.textContent=decoMap[d]||'✦'; deco.classList.toggle('verified-badge',blueDecos.has(d)); brand.style.display=sig?'block':'none';
-    hidColor.value=c; hidFont.value=f; hidShape.value=sh; hidDesign.value=look; hidSig.value=sig?'1':'0'; hidDec.value=d;
+    hidColor.value=c; hidFont.value=f; hidShape.value=sh; hidDesign.value=look; hidBackground.value=bg; hidSig.value=sig?'1':'0'; hidDec.value=d;
     syncSaveButtons();
   }
   window.newMyEdits=()=>{
@@ -120,12 +186,12 @@ document.body.classList.add('personal-route-body');
     document.querySelectorAll('.myed-write-mode button').forEach(b=>b.classList.toggle('active',b.dataset.mode==='topic'));
     body.placeholder='Write the topic / big line…';paint();body.focus();
   };
-  window.loadMyEdits=(id,title,b,c,f,sh,d,sig,dec)=>{
+  window.loadMyEdits=(id,title,b,c,f,sh,d,bg,sig,dec)=>{
     hidId.value=id;
     document.querySelectorAll('input[name=color]').forEach(x=>x.checked=x.value===c);
     document.querySelectorAll('input[name=font_style]').forEach(x=>x.checked=x.value===f);
     document.querySelectorAll('input[name=shape_style]').forEach(x=>x.checked=x.value===sh);
-    document.querySelectorAll('input[name=design_style]').forEach(x=>x.checked=x.value===d);
+    document.querySelectorAll('input[name=design_style]').forEach(x=>x.checked=x.value===d);document.querySelectorAll('input[name=background_style]').forEach(x=>x.checked=x.value===(bg||'solid'));
     document.querySelectorAll('input[name=decoration]').forEach(x=>x.checked=x.value===dec);
     document.querySelectorAll('input[name=signature_enabled]').forEach(x=>x.checked=x.value===String(sig));
     let duplicate=title&&b&&b.toLowerCase().startsWith(title.toLowerCase())&&title.trim()!==b.trim();
