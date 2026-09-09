@@ -53,13 +53,17 @@ def home():
     trips=list(db.execute("SELECT * FROM trips WHERE status='published' ORDER BY date").fetchall())
     destinations=list(db.execute('SELECT * FROM destinations WHERE active=1 ORDER BY sort_order,id').fetchall())
     posts=list(db.execute('SELECT * FROM posts WHERE published=1 ORDER BY id DESC').fetchall())
-    # Small rotation keeps the public page feeling alive without changing admin data.
-    day=datetime.now(timezone.utc).date().toordinal()
+    # Rotate the public selection several times a day without changing admin data.
+    # Active destinations / published trips are always the source of truth, so additions
+    # and removals made by the system flow into the public page automatically.
+    rotation_slot=int(datetime.now(timezone.utc).timestamp() // (6*60*60))
     if destinations:
-        shift=day % len(destinations); destinations=(destinations[shift:]+destinations[:shift])[:12]
+        # Deterministic per-slot rotation keeps a stable page for a few hours, then
+        # presents a different starting place without reshuffling records in storage.
+        shift=rotation_slot % len(destinations); destinations=(destinations[shift:]+destinations[:shift])[:12]
     else: destinations=[]
     if trips:
-        shift=day % len(trips); trips=(trips[shift:]+trips[:shift])[:12]
+        shift=rotation_slot % len(trips); trips=(trips[shift:]+trips[:shift])[:12]
     else: trips=[]
     posts=posts[:6]
     return render_template('home.html',trips=trips,destinations=destinations,posts=posts,promo=promo_value(),q='')
