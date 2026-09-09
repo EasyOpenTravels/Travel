@@ -1,10 +1,10 @@
-const CACHE = 'open-road-pwa-v47';
+const CACHE = 'open-road-pwa-v49';
 const CORE = [
   '/',
   '/offline',
   '/offline/my-stuff',
   '/manifest.json',
-  '/static/style.css?v=47',
+  '/static/style.css?v=49',
   '/sw.js',
   '/static/icon.svg',
   '/static/placeholder.svg',

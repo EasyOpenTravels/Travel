@@ -9,6 +9,43 @@
 <section class="cta-band"><div><div class="eyebrow">YOUR CREW. YOUR MOVE.</div><h2>See something you like? Let's put a date on it.</h2></div><a class="button light" href="{{ url_for('public.contact') }}">Talk to the Adventure Team</a></section>
 {% endblock %}
 {% block scripts %}<script>
-(function(){const el=document.querySelector('.live-collage');if(el){let imgs=[];try{imgs=JSON.parse(el.dataset.liveImages||'[]')}catch(e){};if(imgs.length){let i=0,a=el.querySelector('.photo-a'),b=el.querySelector('.photo-b');const show=()=>{a.style.backgroundImage=`url("${imgs[i%imgs.length]}")`;b.style.backgroundImage=`url("${imgs[(i+1)%imgs.length]}")`;i=(i+1)%imgs.length};show();setInterval(show,9000)}}
-const target=location.origin+'/';document.getElementById('shareOpenRoad')?.addEventListener('click',async()=>{try{if(navigator.share){await navigator.share({title:'Open Road Adventures',text:'Find a place worth leaving the house for.',url:target)}else{await navigator.clipboard.writeText(target);alert('Open Road link copied.')}}catch(e){}});})();
-</script>{% endblock %}
+(function () {
+  const el = document.querySelector('.live-collage');
+  if (el) {
+    let imgs = [];
+    try { imgs = JSON.parse(el.dataset.liveImages || '[]'); } catch (e) { imgs = []; }
+    if (imgs.length) {
+      let i = 0;
+      const a = el.querySelector('.photo-a');
+      const b = el.querySelector('.photo-b');
+      const show = function () {
+        if (!a || !b) return;
+        a.style.backgroundImage = `url("${imgs[i % imgs.length]}")`;
+        b.style.backgroundImage = `url("${imgs[(i + 1) % imgs.length]}")`;
+        i = (i + 1) % imgs.length;
+      };
+      show();
+      setInterval(show, 9000);
+    }
+  }
+
+  const share = document.getElementById('shareOpenRoad');
+  if (share) {
+    const target = location.origin + '/';
+    share.addEventListener('click', async function () {
+      try {
+        if (navigator.share) {
+          await navigator.share({ title: 'Open Road Adventures', text: 'Find a place worth leaving the house for.', url: target });
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(target);
+          alert('Open Road link copied.');
+        } else {
+          window.prompt('Copy the Open Road link:', target);
+        }
+      } catch (e) {
+        // User cancelled sharing; do not record this as an application error.
+      }
+    });
+  }
+})();
+</script>

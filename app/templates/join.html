@@ -2,7 +2,21 @@
 <section class="join-page"><div class="join-card"><div class="eyebrow">BRING YOUR CREW</div><h1>Scan. Land here. Pick a place.</h1><p class="lead">This QR opens the Open Road home page. Share it with friends who need a little convincing.</p><div class="join-qr"><img src="data:image/png;base64,{{ qr|b64encode }}" alt="Open Road Adventures QR code"></div><div class="share-actions"><button class="button primary" type="button" id="shareOpenRoad">Share Open Road</button><button class="button secondary" type="button" id="copyOpenRoad">Copy link</button></div><p class="micro">{{ target }}</p></div></section>
 {% endblock %}
 {% block scripts %}<script>
-const target={{ target|tojson }};
-const share=async()=>{try{if(navigator.share){await navigator.share({title:'Open Road Adventures',text:'Find a place worth leaving the house for.',url:target)}else{await navigator.clipboard.writeText(target);alert('Open Road link copied.')}}catch(e){}};
-document.getElementById('shareOpenRoad')?.addEventListener('click',share);document.getElementById('copyOpenRoad')?.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(target);alert('Link copied.')}catch(e){}});
-</script>{% endblock %}
+(function () {
+  const target = {{ target|tojson }};
+  const share = async function () {
+    try {
+      if (navigator.share) await navigator.share({title:'Open Road Adventures',text:'Find a place worth leaving the house for.',url:target});
+      else if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(target); alert('Link copied.'); }
+      else window.prompt('Copy the Open Road link:', target);
+    } catch (e) {}
+  };
+  const shareBtn=document.getElementById('shareOpenRoad');
+  const copyBtn=document.getElementById('copyOpenRoad');
+  if(shareBtn) shareBtn.addEventListener('click',share);
+  if(copyBtn) copyBtn.addEventListener('click',async function(){
+    try { if(navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(target); else throw new Error('clipboard'); alert('Link copied.'); }
+    catch(e) { window.prompt('Copy the Open Road link:', target); }
+  });
+})();
+</script>

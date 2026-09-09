@@ -67,6 +67,11 @@ def visitor_cookie(response):
         response.set_cookie('visitor_key',key,max_age=31536000,httponly=True,samesite='Lax',secure=request.is_secure)
     return response
 
+@bp.get('/favicon.ico')
+def favicon():
+    from flask import send_from_directory
+    return send_from_directory(current_app.static_folder, 'icon.svg', mimetype='image/svg+xml')
+
 @bp.get('/health')
 def health(): return jsonify(ok=True, service='open-road-adventures')
 @bp.route('/pulse_receiver',methods=['GET','POST'])

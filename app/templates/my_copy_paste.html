@@ -9,4 +9,39 @@
   <section id="saveV4Sheet" class="saves-v4-sheet"><div><span>NEW REFERENCE</span><button type="button" onclick="document.getElementById('saveV4Sheet').classList.remove('open')">×</button></div><form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="saveV4Form"><input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}"><label>Name<input id="saveV4Label" name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My reference" required></label><label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="123456…" required></label><button class="saves-v4-save" type="submit">Save reference</button></form></section>
 </div>
 {% endblock %}{% block scripts %}<script>
-document.body.classList.add('personal-route-body','saves-v4-body');const sq=document.getElementById('saveV4Search');sq?.addEventListener('input',()=>{const q=sq.value.toLowerCase().trim();document.querySelectorAll('.saves-v4-row').forEach(r=>r.hidden=!!q&&!r.dataset.search.includes(q))});async function copySaveV4(v,state){try{await navigator.clipboard.writeText(v)}catch{const t=document.createElement('textarea');t.value=v;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}if(state){state.textContent='Copied ✓';setTimeout(()=>state.textContent='',1200)}}if(location.hash==='#save' || {{ 'true' if edit_item else 'false' }})document.getElementById('saveV4Sheet').classList.add('open');document.getElementById('saveV4Form')?.addEventListener('submit',e=>{const b=e.currentTarget.querySelector('button[type=submit]');b.disabled=true});</script>{% endblock %}
+(function () {
+  document.body.classList.add('personal-route-body', 'saves-v4-body');
+  const sq = document.getElementById('saveV4Search');
+  if (sq) {
+    sq.addEventListener('input', function () {
+      const q = sq.value.toLowerCase().trim();
+      document.querySelectorAll('.saves-v4-row').forEach(function (r) {
+        r.hidden = Boolean(q) && !r.dataset.search.includes(q);
+      });
+    });
+  }
+  window.copySaveV4 = async function (v, state) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(v);
+      else throw new Error('clipboard unavailable');
+    } catch (e) {
+      const t = document.createElement('textarea');
+      t.value = v;
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand('copy');
+      t.remove();
+    }
+    if (state) { state.textContent = 'Copied ✓'; setTimeout(function () { state.textContent = ''; }, 1200); }
+  };
+  const sheet = document.getElementById('saveV4Sheet');
+  const form = document.getElementById('saveV4Form');
+  if (sheet && (location.hash === '#save' || {{ 'true' if edit_item else 'false' }})) sheet.classList.add('open');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      const b = e.currentTarget.querySelector('button[type=submit]');
+      if (b) b.disabled = true;
+    });
+  }
+})();
+</script>

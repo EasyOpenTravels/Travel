@@ -2,4 +2,28 @@
 <section class="journal-settings-screen"><a class="journal-my-stuff" href="{{ url_for('public.my_stuff_journal') }}">My Journal</a><div class="journal-settings-card"><span>JOURNAL SETTINGS</span><h1>Your private room.</h1><p>The Journal can have its own secret. It does not lock My Stuff, Saves or My Color Cards.</p>{% if journal_secret_set %}<div class="journal-setting-status">🔒 Secret is active</div><form method="post"><input type="hidden" name="action" value="remove-secret"><button class="journal-soft wide">Remove Journal secret</button></form>{% else %}<form method="post" class="journal-secret-form"><input type="hidden" name="action" value="set-secret"><label>Create a Journal secret<input name="secret_id" minlength="4" maxlength="12" pattern="[A-Za-z0-9]{4,12}" placeholder="e.g. MOON27" required></label><button class="journal-save">Protect my Journal</button></form>{% endif %}<div class="journal-appearance-tools"><label>Reading size<select id="journalFontSize"><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option></select></label><label class="journal-bg-upload">Journal background<input id="journalBg" type="file" accept="image/*"><small>Choose a background kept on this device.</small></label><button class="journal-soft wide" type="button" onclick="resetJournalLook()">Use default look</button></div><small>Only you should know this secret. Keep it separate from your normal Open Road identity.</small></div></section>
 {% endblock %}
 
-{% block scripts %}<script>document.body.classList.add('personal-route-body','journal-settings-route-body');const fs=document.getElementById('journalFontSize'),bg=document.getElementById('journalBg');if(fs){fs.value=localStorage.getItem('openroad_journal_font')||'14';fs.onchange=()=>localStorage.setItem('openroad_journal_font',fs.value)}if(bg)bg.onchange=()=>{const f=bg.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>localStorage.setItem('openroad_journal_bg',r.result);r.readAsDataURL(f)}function resetJournalLook(){localStorage.removeItem('openroad_journal_bg');localStorage.setItem('openroad_journal_font','14');location.reload()}</script>{% endblock %}
+{% block scripts %}<script>
+(function () {
+  document.body.classList.add('personal-route-body', 'journal-settings-route-body');
+  const fs = document.getElementById('journalFontSize');
+  const bg = document.getElementById('journalBg');
+  if (fs) {
+    fs.value = localStorage.getItem('openroad_journal_font') || '14';
+    fs.addEventListener('change', function () { localStorage.setItem('openroad_journal_font', fs.value); });
+  }
+  if (bg) {
+    bg.addEventListener('change', function () {
+      const f = bg.files && bg.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = function () { localStorage.setItem('openroad_journal_bg', r.result); };
+      r.readAsDataURL(f);
+    });
+  }
+  window.resetJournalLook = function () {
+    localStorage.removeItem('openroad_journal_bg');
+    localStorage.setItem('openroad_journal_font', '14');
+    location.reload();
+  };
+})();
+</script>
