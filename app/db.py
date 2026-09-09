@@ -459,6 +459,137 @@ def init_db(app):
             for slug,category,title,subtitle,description,img,accent,ticketing,published,order in services:
                 db.execute("INSERT INTO services(slug,category,title,subtitle,description,cover_image,accent,ticketing_available,published,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,datetime('now'))", (slug,category,title,subtitle,description,img,accent,ticketing,published,order))
 
+        # Expanded Kenya destination + recurring trip catalogue. Existing records are never removed.
+        # Each destination gets a pair of public price points so search results feel like a real catalogue,
+        # not a handful of sparse examples. Repeated trips are renewed after expiry.
+        expanded_places = [
+            ('aberdare','Aberdare National Park','Moorlands, waterfalls, forests and cool mountain air.','Wildlife · forest · highlands',7500,'Aberdare_National_Park.jpg'),
+            ('amboseli','Amboseli National Park','Elephants, open plains and huge Kilimanjaro views.','Safari · elephants · views',14500,'Amboseli_National_Park,_Kenya.jpg'),
+            ('arusha-border','Loitoktok & Amboseli borderlands','A southern road with Maasai country, farms and mountain views.','Culture · views · road',6800,'Amboseli_National_Park,_Kenya.jpg'),
+            ('bomas-of-kenya','Bomas of Kenya','A lively Nairobi culture stop with performances and traditions.','Culture · city · family',2800,'Nairobi_city_view.jpg'),
+            ('bondo','Bondo & Lake Victoria','A quieter western lakeshore route with sunsets and village landscapes.','Lake · culture · sunset',6200,'Lake_Victoria_Kenya.jpg'),
+            ('bungoma','Bungoma & Mt Elgon foothills','Western Kenya road scenery, markets and mountain country.','Culture · highlands · road',6200,'Mount_Elgon_National_Park.jpg'),
+            ('chaka-ranch','Chaka Ranch','A family-friendly highland escape near Nyeri.','Family · outdoors · highlands',5800,'Aberdare_National_Park.jpg'),
+            ('chogoria','Chogoria','The eastern gateway to dramatic Mt Kenya scenery and forest.','Mountain · forest · road',7200,'Mount_Kenya_National_Park.jpg'),
+            ('chyulu-hills','Chyulu Hills National Park','Rolling volcanic hills between Amboseli and Tsavo landscapes.','Hiking · wilderness · views',9800,'Chyulu_Hills_National_Park.jpg'),
+            ('city-of-kisumu','Kisumu City','Lake Victoria sunsets, city energy and easy western escapes.','Lake · city · sunset',5200,'Kisumu_city.jpg'),
+            ('diani','Diani Beach','White sand, warm water and easy coastal weekends.','Beach · boat · coast',8500,'Diani_Beach,_Kenya.jpg'),
+            ('elgeyo-marakwet','Elgeyo-Marakwet escarpment','Huge Rift views, hills and road-trip scenery.','Escarpment · hiking · views',7200,'Mount_Longonot_in_Kenya.jpg'),
+            ('embu','Embu & waterfalls','Tea country, farms, falls and the eastern Mt Kenya foothills.','Highlands · waterfalls · food',5600,'Mount_Kenya_National_Park.jpg'),
+            ('fort-jesus','Fort Jesus & Old Mombasa','History, Swahili streets and the Indian Ocean.','Culture · history · coast',4200,'Mombasa_Old_Town.jpg'),
+            ('funzi','Funzi Island','Mangroves, tidal waterways and a slower south-coast day.','Island · boat · mangrove',9800,'Diani_Beach,_Kenya.jpg'),
+            ('giraffe-centre','Giraffe Centre','An easy Nairobi wildlife and conservation outing.','Wildlife · Nairobi · family',2200,'Nairobi_city_view.jpg'),
+            ('homa-bay','Homa Bay & Lake Victoria','Lakeshore scenery, islands and western Kenya culture.','Lake · culture · road',6500,'Lake_Victoria_Kenya.jpg'),
+            ('isiolo','Isiolo & gateway north','A practical starting point for northern Kenya adventures.','Road · gateway · culture',6500,'Samburu_National_Reserve.jpg'),
+            ('kajiado','Kajiado & Maasai country','Short southern drives, open country and cultural experiences.','Culture · short trip · views',5200,'Amboseli_National_Park,_Kenya.jpg'),
+            ('kakamega','Kakamega Forest National Reserve','Tropical forest, birds, trails and waterfalls.','Forest · birding · hiking',7200,'Kakamega_Forest.jpg'),
+            ('kapsabet','Kapsabet & tea country','Green tea landscapes and a western highland road.','Tea · highlands · road',5600,'Kakamega_Forest.jpg'),
+            ('karura','Karura Forest','A city escape with trails, caves, falls and green canopy.','Forest · Nairobi · walking',2200,'Karura_Forest.jpg'),
+            ('kericho','Kericho Tea Country','Rolling tea estates and cool western highlands.','Tea · highlands · photos',5200,'Kericho_tea.jpg'),
+            ('kiambu','Kiambu coffee & farm country','A close-to-Nairobi farm, coffee and countryside escape.','Coffee · farms · day trip',3600,'Kiambu.jpg'),
+            ('kilifi','Kilifi','Creeks, beaches and relaxed coastal weekends.','Beach · creek · coast',8200,'Kilifi.jpg'),
+            ('kilaguni-tsavo','Kilaguni & Tsavo West','Lava landscapes, springs and wildlife in Tsavo West.','Safari · lava · wildlife',14800,'Tsavo_West_National_Park.jpg'),
+            ('kisii','Kisii & highlands','Green hills, markets and a western road escape.','Highlands · culture · road',5600,'Kisii.jpg'),
+            ('kisite','Kisite-Mpunguti Marine Park','Coral reefs, dolphins and Wasini Island waters.','Marine · boat · island',11800,'Kisite-Mpunguti_Marine_Park.jpg'),
+            ('kitale','Kitale & Saiwa Swamp','Western highland nature with forest and rare antelope country.','Forest · wildlife · highlands',6800,'Saiwa_Swamp_National_Park.jpg'),
+            ('lamu','Lamu Old Town','Swahili history, dhow rides and island evenings.','Island · culture · coast',12800,'Lamu_Old_Town.jpg'),
+            ('lake-baringo','Lake Baringo','Birds, boats and wide-open Rift Valley water.','Lake · boat · birding',9800,'Lake_Baringo.jpg'),
+            ('lake-bogoria','Lake Bogoria','Hot springs, escarpments and striking lake landscapes.','Lake · hot springs · views',5800,'Lake_Bogoria.jpg'),
+            ('lake-elementaita','Lake Elementaita','Flamingos, birds and a compact Rift Valley escape.','Lake · birding · Rift',5200,'Lake_Elementaita.jpg'),
+            ('lake-nakuru','Lake Nakuru National Park','Rhino country, lakeshore scenery and a manageable safari day.','Safari · rhino · lake',7600,'Lake_Nakuru.jpg'),
+            ('lake-turkana','Lake Turkana','The Jade Sea, desert landscapes and a true northern adventure.','Desert · lake · expedition',24000,'Lake_Turkana.jpg'),
+            ('loita','Loita Hills','Forest, hills and a wilder southern cultural route.','Hiking · culture · forest',11500,'Maasai_Mara_National_Reserve.jpg'),
+            ('madiwa','Mfangano Island','Rock art, lake views and island life on Lake Victoria.','Island · culture · lake',9800,'Lake_Victoria_Kenya.jpg'),
+            ('maasai-mara','Maasai Mara National Reserve','Classic safari country with big skies and wildlife.','Safari · wildlife · sunrise',19500,'Maasai_Mara_National_Reserve.jpg'),
+            ('malindi','Malindi','Marine life, old Swahili history and beautiful beaches.','Beach · marine · history',8800,'Malindi.jpg'),
+            ('marsabit','Marsabit National Park','A remote northern forest around a highland crater lake.','Safari · north · forest',22000,'Marsabit_National_Park.jpg'),
+            ('meru','Meru National Park','River country, wildlife and a less-crowded safari feel.','Safari · rivers · wild',16200,'Meru_National_Park.jpg'),
+            ('mombasa','Mombasa','Old Town, ocean air, food and coastal energy.','Coast · culture · food',6500,'Mombasa_Old_Town.jpg'),
+            ('mount-elgon','Mount Elgon National Park','Forest, caves, hiking and wild western mountain country.','Mountain · caves · forest',9800,'Mount_Elgon_National_Park.jpg'),
+            ('mount-kenya','Mount Kenya National Park','High-altitude scenery, forests and mountain trails.','Mountain · hiking · views',12500,'Mount_Kenya_National_Park.jpg'),
+            ('mount-longonot','Mount Longonot','A crater hike and one of Kenya’s easiest big mountain days.','Hike · crater · challenge',3800,'Mount_Longonot_in_Kenya.jpg'),
+            ('mwea','Mwea National Reserve','Wetlands, birds and an underrated central Kenya safari.','Wetland · birding · safari',8200,'Mwea_National_Reserve.jpg'),
+            ('mombasa-old-town','Mombasa Old Town','Swahili lanes, Fort Jesus and historic coastal life.','History · culture · coast',4200,'Mombasa_Old_Town.jpg'),
+            ('nakuru','Nakuru City','Rift Valley city life with easy access to the lake and parks.','City · lake · Rift',4600,'Lake_Nakuru.jpg'),
+            ('nairobi-national-park','Nairobi National Park','Wildlife with the city skyline close behind.','Safari · Nairobi · wildlife',6200,'Nairobi_National_Park.jpg'),
+            ('nairobi','Nairobi','Food, art, wildlife, shopping and city experiences.','City · food · art',3200,'Nairobi_city_view.jpg'),
+            ('nanyuki','Nanyuki & Mt Kenya','Cooler air, mountain views and northern road-trip energy.','Mountain · road · photos',6500,'View_of_Mt._Kenya_from_Nanyuki_Municipality.jpg'),
+            ('narok','Narok','A practical southern gateway to the Mara with town and countryside options.','Gateway · culture · road',5200,'Maasai_Mara_National_Reserve.jpg'),
+            ('ndere','Ndere Island National Park','Island serenity on Lake Victoria with birds and views.','Island · lake · birding',9400,'Ndere_Island_National_Park.jpg'),
+            ('ngare-ndare','Ngare Ndare Forest','Blue pools, canopy walks and cool forest air.','Forest · canopy · adventure',6200,'Ngare_Ndare_Forest.jpg'),
+            ('ngong-hills','Ngong Hills','A near-Nairobi hiking favourite with broad views.','Hiking · views · day trip',3200,'Ngong_Hills.jpg'),
+            ('ol-pejeta','Ol Pejeta Conservancy','Wildlife, conservation and a comfortable Laikipia weekend.','Safari · conservation · wildlife',13800,'Ol_Pejeta.jpg'),
+            ('pate','Pate Island','Quiet island life, history and coastal culture north of Lamu.','Island · culture · coast',13500,'Lamu_Old_Town.jpg'),
+            ('rusinga','Rusinga Island','Lake Victoria island scenery, culture and slow days.','Island · lake · culture',9800,'Lake_Victoria_Kenya.jpg'),
+            ('ruma','Ruma National Park','Open valley scenery and rare roan antelope country.','Safari · valley · wildlife',10500,'Ruma_National_Park.jpg'),
+            ('sagana','Sagana','River activities, rafting and a classic central Kenya day out.','River · adventure · day trip',4200,'Sagana.jpg'),
+            ('samburu','Samburu National Reserve','Northern wildlife, dramatic landscapes and wide-open skies.','Safari · culture · wild',17500,'Samburu_National_Reserve.jpg'),
+            ('sibiloi','Sibiloi National Park','Fossils, desert landscapes and the shores of Lake Turkana.','Fossils · desert · lake',23000,'Sibiloi_National_Park.jpg'),
+            ('shimba-hills','Shimba Hills National Reserve','Green coastal hills and rare sable antelope country.','Hills · wildlife · coast',9200,'Shimba_Hills_National_Reserve.jpg'),
+            ('siaya','Siaya & western Kenya','Green hills, culture and easy road-trip scenery.','Culture · highlands · road',5200,'Kisumu_city.jpg'),
+            ('sotik','Sotik & Kericho','Tea country, farms and a cool southern-western road.','Tea · farms · road',5600,'Kericho_tea.jpg'),
+            ('taita-hills','Taita Hills','Mountain scenery between Nairobi and the coast with safari options.','Hills · safari · road',12800,'Tsavo_West_National_Park.jpg'),
+            ('takawiri','Takawiri Island','A Lake Victoria island escape with beach-like shores.','Island · lake · chill',10800,'Lake_Victoria_Kenya.jpg'),
+            ('tsavo-east','Tsavo East National Park','Red earth, elephants and enormous open country.','Safari · elephants · wilderness',15200,'Tsavo_East_National_Park.jpg'),
+            ('tsavo-west','Tsavo West National Park','Lava, springs, rhino country and dramatic sunsets.','Safari · lava · wildlife',14800,'Tsavo_West_National_Park.jpg'),
+            ('turkana-central-island','Central Island National Park','Volcanic islands on Lake Turkana for true expedition days.','Island · volcano · lake',28000,'Central_Island_National_Park.jpg'),
+            ('watamu','Watamu','Turquoise water, reef life and a calmer coast.','Beach · reef · coast',9500,'Watamu_beach.jpg'),
+            ('west-kilimanjaro-view','Amboseli sunset country','Southern Kenya landscapes facing Kilimanjaro.','Views · safari · sunset',12000,'Amboseli_National_Park,_Kenya.jpg'),
+            ('nyeri','Nyeri & Aberdare foothills','Tea, farms, waterfalls and Aberdare country.','Highlands · waterfalls · farms',5600,'Aberdare_National_Park.jpg'),
+            ('muranga','Murang’a countryside','Tea, coffee, waterfalls and green central Kenya.','Coffee · waterfalls · farms',4200,'Murang_a.jpg'),
+        ]
+        img_base='https://commons.wikimedia.org/wiki/Special:FilePath/'
+        fallback_imgs=[img_base+'Nairobi_city_view.jpg',img_base+'Diani_Beach,_Kenya.jpg',img_base+'Lake_Nakuru.jpg',img_base+'Kakamega_Forest.jpg']
+        for slug,title,subtitle,vibe,price,imgfile in expanded_places:
+            img=img_base+imgfile
+            cur=db.execute('SELECT id FROM destinations WHERE slug=?',(slug,)).fetchone()
+            if not cur:
+                db.execute('INSERT INTO destinations(slug,title,subtitle,vibe,price_from,cover_image,credit,source_url,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,datetime(\'now\'))',
+                           (slug,title,subtitle,vibe,price,img,'Wikimedia Commons','https://commons.wikimedia.org/',100+len(slug)))
+
+            # Two practical price tiers per place. Use place-specific image first and common fallbacks second.
+            for tier, mult, label in [('easy',1.0,'Easy'),('premium',1.8,'Premium')]:
+                tslug=f'{slug}-{tier}'
+                if db.execute('SELECT 1 FROM trips WHERE slug=?',(tslug,)).fetchone():
+                    continue
+                trip_title=f'{title} {label} Escape'
+                trip_price=int(price*mult)
+                desc=f'{subtitle} A bookable Open Road option with a clear plan, transport and room to enjoy the place.'
+                itinerary='05:30 — Meet & depart\n09:00 — Arrival / first experience\n13:00 — Lunch / free time\n15:30 — Final stop\n18:30 — Return'
+                included='Planned transport · selected entry / experience'
+                excluded='Personal shopping · optional extras'
+                imgs='|'.join([img]+fallback_imgs)
+                db.execute('INSERT INTO trips(slug,title,destination,description,date,price,capacity,pickup,itinerary,included,excluded,cover_image,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime(\'now\'))',
+                           (tslug,trip_title,title,desc,'2026-10-01' if tier=='easy' else '2026-11-15',trip_price,35,'CBD · Westlands',itinerary,included,excluded,imgs,'published'))
+
+        # Existing and newly seeded trips are recurring departures. Expired unbooked departures roll forward a year.
+        from datetime import date as _date
+        def _renew_year(d):
+            y,m,day=map(int,(d or '').split('-')); target_y=y+1
+            if m==2 and day==29:
+                day=28
+            return f'{target_y:04d}-{m:02d}-{day:02d}'
+        for tr in db.execute("SELECT id,date,status FROM trips WHERE date < date('now')").fetchall():
+            active_booking=db.execute("SELECT 1 FROM bookings WHERE trip_id=? AND payment_status NOT IN ('cancelled') LIMIT 1",(tr['id'],)).fetchone()
+            if not active_booking:
+                new_date=tr['date']
+                while new_date < __import__('datetime').date.today().isoformat():
+                    new_date=_renew_year(new_date)
+                db.execute("UPDATE trips SET date=?,status='published' WHERE id=?",(new_date,tr['id']))
+
+        # Give every trip at least three rotating image candidates where possible.
+        for tr in db.execute("SELECT id,destination,cover_image FROM trips").fetchall():
+            cur=(tr['cover_image'] or '').split('|')
+            cur=[x for x in cur if x]
+            if len(cur)<3:
+                extra=[]
+                for x in fallback_imgs:
+                    if x not in cur: extra.append(x)
+                    if len(cur)+len(extra)>=3: break
+                val='|'.join(cur+extra)
+                if val!=tr['cover_image']:
+                    db.execute('UPDATE trips SET cover_image=? WHERE id=?',(val,tr['id']))
+
         if db.execute('SELECT COUNT(*) n FROM posts').fetchone()['n'] == 0:
             db.execute('INSERT INTO posts(title,excerpt,body,image,media_url,category,published,created_at) VALUES(?,?,?,?,?,?,?,datetime(\'now\'))', (
                 'The road is calling','Little previews, trip stories and places we keep thinking about.','This space grows after every adventure. Come back for photos, videos, stories and the next places worth leaving home for.','','','The road ahead',1))

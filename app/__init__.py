@@ -18,6 +18,15 @@ def create_app():
     import base64
     app.jinja_env.filters['b64encode'] = lambda b: base64.b64encode(b).decode('ascii')
     app.jinja_env.filters['fromjson'] = lambda s: __import__('json').loads(s or '[]')
+    def _rotating_image(images, key=''):
+        import hashlib, time
+        vals=[x.strip() for x in str(images or '').split('|') if x.strip()]
+        if not vals: return ''
+        # Same place changes on the hour; a stable key keeps the change tied to the place.
+        hour=int(time.time()//3600)
+        seed=int(hashlib.sha256(str(key).lower().encode('utf-8')).hexdigest()[:12],16)
+        return vals[(hour + seed) % len(vals)]
+    app.jinja_env.filters['rotating_image'] = _rotating_image
     app.config.update(
         SECRET_KEY=os.environ.get('FLASK_SECRET_KEY') or _secret(Path(app.instance_path)/'session-secret.key'),
         DATABASE_PATH=os.environ.get('DATABASE_PATH', str(Path(app.instance_path)/'adventures.sqlite3')),
