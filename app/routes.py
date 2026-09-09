@@ -1421,8 +1421,9 @@ def my_stuff_color_card_save():
     custom_bg=clean_hex(custom_bg,'')
     custom_text=clean_hex(custom_text,'')
     if not title and not body: return jsonify(ok=False,message='Write a topic or body first.'),400
-    cols=['title','body','color','font_style','shape_style','design_style','background_style','qr_enabled','signature_enabled','decoration','custom_bg','custom_text','text_align','font_scale','border_style','texture_style','updated_at']
-    vals=[title,body,color,font_style,shape_style,design_style,background_style,1,signature_enabled,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,now()]
+    cols=['title','body','color','font_style','shape_style','design_style','background_style','qr_enabled','signature_enabled','decoration','custom_bg','custom_text','text_align','font_scale','border_style','texture_style','created_at','updated_at']
+    timestamp=now()
+    vals=[title,body,color,font_style,shape_style,design_style,background_style,1,signature_enabled,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,timestamp,timestamp]
     if card_id:
         owned=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
         if not owned: return jsonify(ok=False,message='That card was not found.'),404
