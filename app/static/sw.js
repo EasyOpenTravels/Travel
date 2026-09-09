@@ -4,7 +4,7 @@ const CORE = [
   '/offline',
   '/offline/my-stuff',
   '/manifest.json',
-  '/static/style.css?v=30',
+  '/static/style.css?v=31',
   '/sw.js',
   '/static/icon.svg',
   '/static/placeholder.svg',

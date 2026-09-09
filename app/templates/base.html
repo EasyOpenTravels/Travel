@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#12212b"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="description" content="Open Road Adventures — trips, celebrations, events and easy ticketing.">
 <link rel="manifest" href="{{ url_for('public.manifest') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
-<link rel="stylesheet" href="{{ url_for('static',filename='style.css', v='30') }}"><title>{{ config.BRAND_NAME }}</title>
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css', v='31') }}"><title>{{ config.BRAND_NAME }}</title>
 </head>
 <body class="{% if request.path.startswith('/my-stuff') %}personal-route{% endif %}">
 <header class="topbar">
@@ -20,16 +20,21 @@
     <div class="drawer-top"><div><span class="eyebrow">OPEN ROAD</span><h2>What are we making happen?</h2></div><button class="drawer-close" onclick="toggleRoadMenu(false)" aria-label="Close menu">×</button></div>
     <div class="drawer-note">Come for the road. Stay for the ideas.</div>
     <nav class="drawer-list">
-      <a class="drawer-feature lime" href="{{ url_for('public.home') }}#trips" onclick="toggleRoadMenu(false)"><span>01</span><div><b>Road trips</b><small>Day escapes, weekends, wild plans</small></div></a>
-      <a class="drawer-feature aqua" href="{{ url_for('public.home') }}#places" onclick="toggleRoadMenu(false)"><span>02</span><div><b>Places to go</b><small>Get inspired before you decide</small></div></a>
-      <a class="drawer-feature orange" href="{{ url_for('public.services') }}" onclick="toggleRoadMenu(false)"><span>03</span><div><b>Birthday plans</b><small>We can plan it or ticket it</small></div></a>
-      <a class="drawer-feature pink" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>04</span><div><b>Weddings & celebrations</b><small>Guest lists, tickets, smooth entry</small></div></a>
-      <a class="drawer-feature blue" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>05</span><div><b>Graduations & campus</b><small>Big moments without messy logistics</small></div></a>
-      <a class="drawer-feature yellow" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>06</span><div><b>Private events</b><small>Parties, launches, reunions, meetups</small></div></a>
-      <a class="drawer-feature teal" href="{{ url_for('public.ticketing_home') }}" onclick="toggleRoadMenu(false)"><span>07</span><div><b>Event Ticketing</b><small>Host your own event or find a ticket</small></div></a>
-      <a class="drawer-feature orange stuff-drawer" href="{{ url_for('public.my_stuff') }}" onclick="toggleRoadMenu(false)"><span>08</span><div><b>My Stuff</b><small>Three private personal spaces</small></div></a>
-      <a class="drawer-feature white" href="{{ url_for('public.group_retreats') }}" onclick="toggleRoadMenu(false)"><span>09</span><div><b>Group retreats</b><small>Plan one outing for five or more</small></div></a>
-      <a class="drawer-feature white" href="{{ url_for('public.services') }}#support" onclick="toggleRoadMenu(false)"><span>10</span><div><b>Need an idea?</b><small>Tell us what you're trying to make happen</small></div></a>
+      <div class="drawer-group lime"><button class="drawer-group-head" type="button" aria-expanded="false" onclick="toggleDrawerGroup(this)"><span>01</span><div><b>Explore & Go</b><small>Road trips and places to go</small></div><i>+</i></button><div class="drawer-children">
+        <a href="{{ url_for('public.home') }}#trips" onclick="toggleRoadMenu(false)"><b>Road trips</b><small>Day escapes, weekends, wild plans</small></a>
+        <a href="{{ url_for('public.home') }}#places" onclick="toggleRoadMenu(false)"><b>Places to go</b><small>Get inspired before you decide</small></a>
+      </div></div>
+      <div class="drawer-group pink"><button class="drawer-group-head" type="button" aria-expanded="false" onclick="toggleDrawerGroup(this)"><span>02</span><div><b>Celebrations & Events</b><small>Open each service independently</small></div><i>+</i></button><div class="drawer-children">
+        <a href="{{ url_for('public.services') }}" onclick="toggleRoadMenu(false)"><b>Birthday plans</b><small>A day out, surprise or celebration</small></a>
+        <a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><b>Private events</b><small>Parties, launches, reunions, meetups</small></a>
+        <a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><b>Weddings & celebrations</b><small>Guest lists, tickets, smooth entry</small></a>
+        <a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><b>Graduations & campus</b><small>Big moments without messy logistics</small></a>
+      </div></div>
+      <a class="drawer-feature teal" href="{{ url_for('public.ticketing_home') }}" onclick="toggleRoadMenu(false)"><span>03</span><div><b>Event Ticketing</b><small>Host your own event or find a ticket</small></div></a>
+      <a class="drawer-feature orange stuff-drawer" href="{{ url_for('public.my_stuff') }}" onclick="toggleRoadMenu(false)"><span>04</span><div><b>My Stuff</b><small>Three private personal spaces</small></div></a>
+      <a class="drawer-feature aqua" href="{{ url_for('public.group_retreats') }}" onclick="toggleRoadMenu(false)"><span>05</span><div><b>Group Retreats</b><small>Plan one outing for five or more</small></div></a>
+      <a class="drawer-feature white" href="{{ url_for('public.services') }}#support" onclick="toggleRoadMenu(false)"><span>06</span><div><b>Need an idea?</b><small>Tell us what you're trying to make happen</small></div></a>
+      <a class="drawer-feature yellow" href="{{ url_for('public.contact') }}" onclick="toggleRoadMenu(false)"><span>07</span><div><b>Talk to the Adventure Team</b><small>Questions, custom plans and special requests</small></div></a>
     </nav>
     <div class="drawer-bottom">One place for the trip, the event and the tickets.</div>
   </aside>
@@ -49,5 +54,5 @@ window.addEventListener('DOMContentLoaded',()=>{
   });
 });
 </script>
-<script>let deferredInstall=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const n=document.getElementById('pwaNote');if(n)n.style.display='flex'});document.getElementById('pwaInstall')?.addEventListener('click',async()=>{if(!deferredInstall)return;deferredInstall.prompt();try{await deferredInstall.userChoice}catch(e){}deferredInstall=null;document.getElementById('pwaNote')?.remove()});function toggleRoadMenu(force){const w=document.getElementById('roadMenu');if(!w)return;const open=typeof force==='boolean'?force:!w.classList.contains('open');w.classList.toggle('open',open);w.setAttribute('aria-hidden',String(!open));document.querySelector('.menu-button')?.setAttribute('aria-expanded',String(open));document.body.classList.toggle('menu-lock',open)}</script>{% block scripts %}{% endblock %}
+<script>let deferredInstall=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const n=document.getElementById('pwaNote');if(n)n.style.display='flex'});document.getElementById('pwaInstall')?.addEventListener('click',async()=>{if(!deferredInstall)return;deferredInstall.prompt();try{await deferredInstall.userChoice}catch(e){}deferredInstall=null;document.getElementById('pwaNote')?.remove()});function toggleDrawerGroup(btn){const group=btn.closest('.drawer-group');if(!group)return;const open=group.classList.toggle('open');btn.setAttribute('aria-expanded',String(open));group.parentElement.querySelectorAll('.drawer-group').forEach(g=>{if(g!==group){g.classList.remove('open');g.querySelector('.drawer-group-head')?.setAttribute('aria-expanded','false')}})};function toggleRoadMenu(force){const w=document.getElementById('roadMenu');if(!w)return;const open=typeof force==='boolean'?force:!w.classList.contains('open');w.classList.toggle('open',open);w.setAttribute('aria-hidden',String(!open));document.querySelector('.menu-button')?.setAttribute('aria-expanded',String(open));document.body.classList.toggle('menu-lock',open)}</script>{% block scripts %}{% endblock %}
 </body></html>

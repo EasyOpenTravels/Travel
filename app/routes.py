@@ -74,7 +74,7 @@ def search():
     db=get_db(); trips=[]; destinations=[]; services=[]
     if q:
         like='%'+q+'%'
-        trips=db.execute("SELECT * FROM trips WHERE status='published' AND (title LIKE ? OR destination LIKE ? OR description LIKE ?) ORDER BY date LIMIT 24",(like,like,like)).fetchall()
+        trips=db.execute("SELECT * FROM trips WHERE status='published' AND (title LIKE ? OR destination LIKE ? OR description LIKE ? OR pickup LIKE ? OR itinerary LIKE ?) ORDER BY LOWER(title), date, id LIMIT 100",(like,like,like,like,like)).fetchall()
         destinations=db.execute("SELECT * FROM destinations WHERE active=1 AND (title LIKE ? OR subtitle LIKE ? OR vibe LIKE ?) ORDER BY sort_order,id LIMIT 24",(like,like,like)).fetchall()
     posts=db.execute("SELECT * FROM posts WHERE published=1 AND (title LIKE ? OR excerpt LIKE ? OR body LIKE ?) ORDER BY id DESC LIMIT 12",('%'+q+'%','%'+q+'%','%'+q+'%')).fetchall() if q else []
     return render_template('search.html',q=q,trips=trips,destinations=destinations,posts=posts,promo=promo_value())
@@ -83,7 +83,7 @@ def search():
 def destination(slug):
     d=get_db().execute('SELECT * FROM destinations WHERE slug=? AND active=1',(slug,)).fetchone()
     if not d: abort(404)
-    related=get_db().execute("SELECT * FROM trips WHERE status='published' AND destination LIKE ? ORDER BY date LIMIT 8",('%'+d['title'].split()[0]+'%',)).fetchall()
+    related=get_db().execute("SELECT * FROM trips WHERE status='published' AND (destination LIKE ? OR title LIKE ? OR description LIKE ?) ORDER BY LOWER(title), date, id LIMIT 24",('%'+d['title'].split()[0]+'%','%'+d['title'].split()[0]+'%','%'+d['title'].split()[0]+'%')).fetchall()
     return render_template('destination.html',destination=d,related=related)
 
 @bp.get('/trip/<slug>')
@@ -755,7 +755,7 @@ def _global_simple_id_hash(user):
 
 
 def _stuff_colors():
-    return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white']
+    return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white', 'red', 'purple', 'navy', 'mint', 'rose', 'coral', 'sky', 'ink', 'peach', 'lemon', 'violet', 'sand', 'cyan', 'magenta']
 
 def _journal_moods():
     return ['morning', 'midday', 'evening']
@@ -989,17 +989,18 @@ def my_stuff_card_save():
     qr_enabled=1
     signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
     decoration=request.form.get('decoration','spark').strip().lower()
-    if decoration not in {'none','spark','sun','moon','heart','bird','dots'}: decoration='spark'
-    if color not in _stuff_colors(): color='lime'
-    if font_style not in {'bold','soft','mono','hand'}: font_style='bold'
-    if shape_style not in {'sticky','rounded','ticket','cloud','note','arch'}: shape_style='sticky'
+    allowed_colors={'yellow','blue','pink','aqua','lime','orange','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}
+    allowed_fonts={'bold','soft','mono','hand','serif','display','light','wide','typewriter','comic','caps','elegant'}
+    allowed_shapes={'sticky','rounded','ticket','cloud','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}
+    allowed_decoration={'spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'}
+    if color not in allowed_colors: color='lime'
+    if font_style not in allowed_fonts: font_style='bold'
+    if shape_style not in allowed_shapes: shape_style='sticky'
     if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
+    if decoration not in allowed_decoration: decoration='spark'
     if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
-    if not body:
-        flash('Write something on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
-    if not title:
-        first_line=next((line.strip() for line in body.splitlines() if line.strip()), '')
-        title=(first_line[:70] or 'My little card')
+    if not body and not title:
+        flash('Write a topic or body on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
     after_save=request.form.get('after_save','').strip().lower()
     if card_id:
         db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,qr_enabled=?,signature_enabled=?,decoration=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,qr_enabled,signature_enabled,decoration,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
@@ -1029,7 +1030,8 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         'lime':('#dff579','#15201b','#82af43'),'aqua':('#a9e8df','#112027','#3faaa0'),
         'orange':('#ffc080','#261710','#cc6f33'),'pink':('#ffb9cf','#28121c','#cf5b83'),
         'blue':('#a9c9ff','#112031','#5679bc'),'yellow':('#ffe06a','#221d0d','#c2911d'),
-        'teal':('#71d6c7','#10211f','#2e978d'),'white':('#fffdf8','#172028','#98a3a7')}
+        'teal':('#71d6c7','#10211f','#2e978d'),'white':('#fffdf8','#172028','#98a3a7'),
+        'red':('#ff7a7a','#331616','#a83f3f'),'purple':('#c9a7ff','#281d3a','#8152c8'),'navy':('#223b67','#f8fbff','#6ea4ff'),'mint':('#b9f3d4','#153027','#55ae82'),'rose':('#f7a7ba','#34151d','#b64e6d'),'coral':('#ff9a7a','#351913','#bc5d43'),'sky':('#83d8ff','#142b38','#398cb4'),'ink':('#25313a','#fff','#83d8ff'),'peach':('#ffd1ad','#39251b','#cc7b44'),'lemon':('#f7f06a','#2d2b0e','#b9a92a'),'violet':('#a98bff','#24183f','#7653ba'),'sand':('#e8cf9d','#2f271a','#a9853b'),'cyan':('#69dce5','#122b2f','#329ca4'),'magenta':('#e58cc7','#351a2d','#ad4f91')}
     bg,ink,accent=palettes.get(card['color'],palettes['lime'])
     font_style=getattr(card,'_export_font','bold') or 'bold'
     shape=getattr(card,'_export_shape','sticky') or 'sticky'
@@ -1047,6 +1049,25 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
     shadow=(box[0]+18,box[1]+22,box[2]+18,box[3]+22)
     d.rounded_rectangle(shadow,radius=44,fill=(54,62,62))
     if shape=='rounded': d.rounded_rectangle(box,radius=90,fill=bgc,outline=inkc,width=7)
+    elif shape in {'circle','bubble'}:
+        d.ellipse(box,fill=bgc,outline=inkc,width=7)
+    elif shape in {'diagonal','slant','polygon','flag','ticketwide'}:
+        if shape=='diagonal': pts=[(180,100),(1420,140),(1450,860),(150,900)]
+        elif shape=='slant': pts=[(270,100),(1450,160),(1330,900),(150,840)]
+        elif shape=='flag': pts=[(150,100),(1450,100),(1330,500),(1450,900),(150,900),(270,500)]
+        elif shape=='polygon': pts=[(250,100),(1350,100),(1450,200),(1450,800),(1350,900),(250,900),(150,800),(150,200)]
+        else: pts=[(180,100),(1420,100),(1420,250),(1470,250),(1470,750),(1420,750),(1420,900),(180,900),(180,750),(130,750),(130,250),(180,250)]
+        d.polygon(pts,fill=bgc); d.line(pts+[pts[0]],fill=inkc,width=7,joint='curve')
+    elif shape=='wavy':
+        d.rounded_rectangle(box,radius=70,fill=bgc,outline=inkc,width=7)
+    elif shape=='stamp':
+        d.rounded_rectangle(box,radius=30,fill=bgc,outline=inkc,width=7)
+        for x in range(175,1430,55): d.ellipse((x-8,92,x+8,108),fill=inkc); d.ellipse((x-8,892,x+8,908),fill=inkc)
+    elif shape=='softbox':
+        d.rounded_rectangle(box,radius=55,fill=bgc,outline=inkc,width=7)
+    elif shape=='diary':
+        d.rounded_rectangle(box,radius=24,fill=bgc,outline=inkc,width=7); d.rectangle((150,100,205,900),fill=inkc)
+    elif shape=='pill': d.rounded_rectangle(box,radius=400,fill=bgc,outline=inkc,width=7)
     elif shape=='ticket':
         d.rounded_rectangle(box,radius=28,fill=bgc,outline=inkc,width=7)
         for yy in range(170,850,78):
@@ -1065,14 +1086,15 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         'bold':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         'soft':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
         'mono':'/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
-        'hand':'/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf'
+        'hand':'/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf',
+        'serif':'/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf','display':'/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf','light':'/usr/share/fonts/truetype/dejavu/DejaVuSans-ExtraLight.ttf','wide':'/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf','typewriter':'/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf','comic':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','caps':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','elegant':'/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf'
     }
     def F(style,size):
         p=font_map.get(style,font_map['bold'])
         try:return ImageFont.truetype(p,size)
         except OSError:return ImageFont.load_default()
     align='center' if design in {'pastel','playful','night'} else 'left'; tx=800 if align=='center' else 245; anchor='ma' if align=='center' else 'la'
-    title=card['title'] or 'A little note'; body=card['body'] or ''
+    title=card['title'] or ''; body=card['body'] or ''
     title_font=F(font_style,82); body_font=F('mono' if font_style=='mono' else 'soft',38); small=F('bold',24)
     def wrap(text,font,maxw):
         lines=[]; cur=''
@@ -1084,14 +1106,14 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
                 cur=word
         if cur: lines.append(cur)
         return lines
-    tlines=wrap(title,title_font,1080)[:3]
+    tlines=wrap(title,title_font,1080)[:3] if title else []
     y=300
     for line in tlines: d.text((tx,y),line,font=title_font,fill=inkc,anchor=anchor); y+=94
-    blines=wrap(body,body_font,1090)[:8]
-    y=max(y+20,535)
+    blines=wrap(body,body_font,1090)[:8] if body else []
+    y=(y+20 if tlines else 450)
     for line in blines: d.text((tx,y),line,font=body_font,fill=inkc,anchor=anchor); y+=52
     # tiny decorative mark
-    deco={'spark':'✦','sun':'☼','moon':'☾','heart':'♡','bird':'⌁','dots':'•••','none':''}.get(decoration,'✦')
+    deco={'spark':'✦','sun':'☼','moon':'☾','heart':'♡','bird':'⌁','dots':'•••','none':'','verified':'✓','starblue':'★','checkblue':'✓','crownblue':'♛','diamond':'◆','bolt':'⚡','burst':'✹','seal':'●'}.get(decoration,'✦')
     if deco:
         df=F('bold',38); d.text((1280,160),deco,font=df,fill=acc,anchor='mm')
     # QR is mandatory on every card export. Branding is optional.
