@@ -64,7 +64,8 @@ def create_app():
     @app.after_request
     def headers(resp):
         resp.headers['X-Content-Type-Options']='nosniff'; resp.headers['X-Frame-Options']='DENY'; resp.headers['Referrer-Policy']='strict-origin-when-cross-origin'
-        if request.path.startswith('/'+app.config['ADMIN_PATH']): resp.headers['Cache-Control']='no-store'
+        if request.path == '/sw.js': resp.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+        elif request.path.startswith('/'+app.config['ADMIN_PATH']): resp.headers['Cache-Control']='no-store'
         return resp
     return app
 app = create_app()

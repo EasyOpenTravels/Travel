@@ -1,22 +1,17 @@
-const CACHE = 'open-road-pwa-v49';
+const CACHE = 'open-road-pwa-v50';
 const CORE = [
   '/',
   '/offline',
   '/offline/my-stuff',
   '/manifest.json',
-  '/static/style.css?v=49',
-  '/sw.js',
+  '/static/style.css?v=50',
   '/static/icon.svg',
   '/static/placeholder.svg',
   '/static/event-signature.png'
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(CORE))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -28,26 +23,15 @@ self.addEventListener('activate', event => {
 });
 
 function isSensitive(pathname) {
-  return pathname.startsWith('/admin') ||
-         pathname.startsWith('/api/') ||
-         pathname.startsWith('/media/') ||
-         pathname === '/account' ||
-         pathname.startsWith('/booking') ||
-         pathname.startsWith('/ticket/') ||
-         pathname.startsWith('/scan/') ||
-         pathname.startsWith('/my-stuff');
+  return pathname.startsWith('/admin') || pathname.startsWith('/api/') || pathname.startsWith('/media/') ||
+         pathname === '/account' || pathname.startsWith('/booking') || pathname.startsWith('/ticket/') ||
+         pathname.startsWith('/scan/') || pathname.startsWith('/my-stuff');
 }
 
 function isSafePublicPage(pathname) {
-  return pathname === '/' ||
-         pathname.startsWith('/destination/') ||
-         pathname.startsWith('/trip/') ||
-         pathname === '/services' ||
-         pathname === '/ticketing' ||
-         pathname === '/group-retreats' ||
-         pathname === '/search' ||
-         pathname === '/contact' ||
-         pathname === '/join';
+  return pathname === '/' || pathname.startsWith('/destination/') || pathname.startsWith('/trip/') ||
+         pathname === '/services' || pathname === '/ticketing' || pathname === '/group-retreats' ||
+         pathname === '/search' || pathname === '/contact' || pathname === '/join';
 }
 
 async function cacheFresh(request, response) {
@@ -60,55 +44,48 @@ async function cacheFresh(request, response) {
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-
   const pathname = url.pathname;
+
+  // NEVER cache the service-worker script itself. This is important so future
+  // deployments can actually replace the worker and clear stale application code.
+  if (pathname === '/sw.js') {
+    event.respondWith(fetch(request, {cache:'no-store'}));
+    return;
+  }
+
   const isNavigation = request.mode === 'navigate';
   const isStatic = pathname.startsWith('/static/') || pathname === '/manifest.json';
-
-  // Static assets are cache-first. This is what keeps the installed app looking
-  // like an app even when the network disappears.
   if (isStatic) {
     event.respondWith(
-      caches.match(request).then(cached => cached || fetch(request).then(r => cacheFresh(request, r)))
+      fetch(request, {cache:'no-store'}).then(r => cacheFresh(request,r)).catch(() => caches.match(request))
     );
     return;
   }
 
-  // The authenticated My Stuff page deliberately falls back to a local-only
-  // IndexedDB workspace instead of serving somebody's cached private HTML.
   if (isNavigation && (pathname === '/my-stuff' || pathname.startsWith('/my-stuff/'))) {
     event.respondWith(
-      fetch(request).then(response => cacheFresh(request, response)).catch(() => caches.match(request).then(cached => cached || caches.match('/offline/my-stuff')))
+      fetch(request).then(response => cacheFresh(request,response)).catch(() => caches.match(request).then(cached => cached || caches.match('/offline/my-stuff')))
     );
     return;
   }
 
-  // Offline entrypoint.
   if (isNavigation && pathname === '/offline') {
     event.respondWith(caches.match('/offline'));
     return;
   }
 
-  // Home and other public pages get network-first freshness, then offline cache.
   if (isNavigation && (isSafePublicPage(pathname) || pathname === '/')) {
     event.respondWith(
-      fetch(request)
-        .then(response => cacheFresh(request, response))
-        .catch(() => caches.match(request).then(cached => cached || caches.match('/offline')))
+      fetch(request).then(response => cacheFresh(request,response)).catch(() => caches.match(request).then(cached => cached || caches.match('/offline')))
     );
     return;
   }
 
-  // Never cache sensitive/private server responses.
   if (isSensitive(pathname)) return;
 
-  // Other GET requests: keep a local copy after the first successful visit.
   event.respondWith(
-    fetch(request)
-      .then(response => cacheFresh(request, response))
-      .catch(() => caches.match(request).then(cached => cached || caches.match('/offline')))
+    fetch(request).then(response => cacheFresh(request,response)).catch(() => caches.match(request).then(cached => cached || caches.match('/offline')))
   );
 });

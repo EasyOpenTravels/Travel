@@ -6,7 +6,7 @@
     {% for item in copies %}<article class="saves-v4-row" data-search="{{ (item.label ~ ' ' ~ item.value)|lower }}"><button class="saves-v4-name" type="button" onclick="copySaveV4(this.closest('.saves-v4-row').querySelector('.saves-v4-value').textContent,this.closest('.saves-v4-row').querySelector('.saves-v4-copy-state'))">{{ item.label }}</button><button class="saves-v4-value" type="button" onclick="copySaveV4(this.textContent,this.closest('.saves-v4-row').querySelector('.saves-v4-copy-state'))">{{ item.value }}</button><div class="saves-v4-actions"><a href="{{ url_for('public.my_stuff_copy_paste',edit=item.id) }}#save">Edit</a><form method="post" action="{{ url_for('public.my_stuff_copy_delete',item_id=item.id) }}"><button>×</button></form></div><small class="saves-v4-copy-state"></small></article>{% else %}<div class="saves-v4-empty"><b>Your useful references live here.</b><span>Tap + to keep a Till, Paybill, phone number, code or token.</span></div>{% endfor %}
   </main>
   <button class="saves-v4-plus" type="button" onclick="document.getElementById('saveV4Sheet').classList.add('open');document.getElementById('saveV4Label').focus()">＋</button>
-  <section id="saveV4Sheet" class="saves-v4-sheet"><div><span>NEW REFERENCE</span><button type="button" onclick="document.getElementById('saveV4Sheet').classList.remove('open')">×</button></div><form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="saveV4Form"><input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}"><label>Name<input id="saveV4Label" name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My reference" required></label><label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="123456…" required></label><button class="saves-v4-save" type="submit">Save reference</button></form></section>
+  <section id="saveV4Sheet" data-edit="{{ '1' if edit_item else '0' }}" class="saves-v4-sheet"><div><span>NEW REFERENCE</span><button type="button" onclick="document.getElementById('saveV4Sheet').classList.remove('open')">×</button></div><form method="post" action="{{ url_for('public.my_stuff_copy_save') }}" id="saveV4Form"><input type="hidden" name="item_id" value="{{ edit_item.id if edit_item else '' }}"><label>Name<input id="saveV4Label" name="label" value="{{ edit_item.label if edit_item else '' }}" placeholder="My reference" required></label><label>Number / code<input name="value" value="{{ edit_item.value if edit_item else '' }}" placeholder="123456…" required></label><button class="saves-v4-save" type="submit">Save reference</button></form></section>
 </div>
 {% endblock %}{% block scripts %}<script>
 (function () {
@@ -36,7 +36,7 @@
   };
   const sheet = document.getElementById('saveV4Sheet');
   const form = document.getElementById('saveV4Form');
-  if (sheet && (location.hash === '#save' || {{ 'true' if edit_item else 'false' }})) sheet.classList.add('open');
+  if (sheet && (location.hash === '#save' || sheet.dataset.edit === '1')) sheet.classList.add('open');
   if (form) {
     form.addEventListener('submit', function (e) {
       const b = e.currentTarget.querySelector('button[type=submit]');

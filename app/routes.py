@@ -102,9 +102,14 @@ def client_error():
     db=get_db(); key=request.cookies.get('visitor_key','')
     uid=session.get('user_id')
     page=str(data.get('page') or request.referrer or request.path)[:500]
-    message=str(data.get('message','Client-side error'))[:4000]
+    raw_message=str(data.get('message','Client-side error'))[:3500]
     kind=str(data.get('kind','ClientError'))[:100]
-    extra='source='+str(data.get('source',''))[:300]+' line='+str(data.get('line',''))[:20]+' column='+str(data.get('column',''))[:20]
+    source=str(data.get('source',''))[:300]
+    line=str(data.get('line',''))[:20]
+    column=str(data.get('column',''))[:20]
+    message=raw_message
+    if source or line or column:
+        message=f'{raw_message} | source={source or "n/a"} | line={line or "0"} | column={column or "0"}'
     stack=str(data.get('stack',''))[:10000]
     db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(now(),0,page,request.method,kind,message,extra+'\n'+stack,uid,key,request.headers.get('User-Agent','')[:600],_request_ip())); db.commit()
     return jsonify(ok=True)

@@ -282,15 +282,52 @@ def upload():
 def backup():
     g=guard()
     if g:return g
-    db=get_db(); db.execute('PRAGMA wal_checkpoint(FULL)'); db.commit()
-    db_path=current_app.config['DATABASE_PATH']; upload=current_app.config['UPLOAD_FOLDER']; buf=io.BytesIO()
-    with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
-        z.write(db_path,'database/adventures.sqlite3')
-        z.writestr('database/README.txt','Open Road system database: database/adventures.sqlite3\nThe restore tool also accepts older/root-level SQLite backup layouts.')
-        if os.path.isdir(upload):
-            for path in pathlib.Path(upload).rglob('*'):
-                if path.is_file(): z.write(path,'uploads/'+path.relative_to(upload).as_posix())
-    buf.seek(0); return send_file(buf,as_attachment=True,download_name='travel-full-backup.zip',mimetype='application/zip')
+    import json as _json
+    db_path=current_app.config['DATABASE_PATH']
+    upload=current_app.config['UPLOAD_FOLDER']
+    buf=io.BytesIO(); temp_db=None
+    try:
+        # Use SQLite's online backup API rather than copying the live file. This captures
+        # the actual live database safely even when WAL mode is enabled.
+        os.makedirs(os.path.join(current_app.instance_path,'backup_tmp'),exist_ok=True)
+        temp_db=os.path.join(current_app.instance_path,'backup_tmp',f'backup-{secrets.token_hex(6)}.sqlite3')
+        source=get_db()
+        source.execute('PRAGMA wal_checkpoint(FULL)')
+        source.commit()
+        dest=sqlite3.connect(temp_db)
+        source.backup(dest)
+        dest.commit(); dest.close()
+        test=sqlite3.connect(temp_db)
+        check=test.execute('PRAGMA integrity_check').fetchone()[0]
+        tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        counts={}
+        for table in sorted(tables):
+            if table.isidentifier():
+                try: counts[table]=int(test.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+                except Exception: pass
+        test.close()
+        if check!='ok': raise ValueError('Live database integrity check failed; backup aborted.')
+        manifest={
+            'format':'open-road-full-backup-v2',
+            'created_at':now(),
+            'database_integrity':check,
+            'database_path_note':'Captured from the live DATABASE_PATH using SQLite backup API.',
+            'tables':counts,
+            'application_build':'50'
+        }
+        with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
+            z.write(temp_db,'database/adventures.sqlite3')
+            z.writestr('manifest.json',_json.dumps(manifest,indent=2))
+            z.writestr('database/README.txt','This is a live full backup captured from the configured database using SQLite online backup. Keep this ZIP private; it contains user/account data.\n')
+            if os.path.isdir(upload):
+                for path in pathlib.Path(upload).rglob('*'):
+                    if path.is_file(): z.write(path,'uploads/'+path.relative_to(upload).as_posix())
+        buf.seek(0)
+        return send_file(buf,as_attachment=True,download_name='travel-full-backup.zip',mimetype='application/zip',max_age=0)
+    finally:
+        if temp_db:
+            try: os.remove(temp_db)
+            except OSError: pass
 
 @admin_bp.post('/restore')
 def restore():
@@ -298,52 +335,55 @@ def restore():
     if g:return g
     f=request.files.get('backup')
     if not f: flash('Choose a full .zip backup from this system.','error'); return redirect(url_for('admin.dashboard'))
-    temp_dir=os.path.join(current_app.instance_path,'restore_tmp_'+secrets.token_hex(4)); os.makedirs(temp_dir,exist_ok=True); temp_zip=os.path.join(temp_dir,'backup.zip')
+    temp_dir=os.path.join(current_app.instance_path,'restore_tmp_'+secrets.token_hex(4)); os.makedirs(temp_dir,exist_ok=True)
+    temp_zip=os.path.join(temp_dir,'backup.zip')
     try:
         f.save(temp_zip)
         with zipfile.ZipFile(temp_zip) as z:
             names=z.namelist()
             for name in names:
-                p=pathlib.PurePosixPath(name)
-                if p.is_absolute() or '..' in p.parts: raise ValueError('Unsafe backup path.')
-            # Accept the canonical backup path and older/root-level database packages.
-            candidates=[]
-            preferred={
-                'database/adventures.sqlite3', 'database/system.sqlite3',
-                'database/adventures.db', 'database/system.db',
-                'adventures.sqlite3', 'system.sqlite3', 'adventures.db', 'system.db'
-            }
-            for name in names:
-                norm=name.replace('\\','/').lstrip('./')
-                if norm in preferred:
-                    candidates.append(norm)
+                pth=pathlib.PurePosixPath(name)
+                if pth.is_absolute() or '..' in pth.parts: raise ValueError('Unsafe backup path.')
+            preferred={'database/adventures.sqlite3','database/system.sqlite3','database/adventures.db','database/system.db','adventures.sqlite3','system.sqlite3','adventures.db','system.db'}
+            candidates=[n.replace('\\','/').lstrip('./') for n in names if n.replace('\\','/').lstrip('./') in preferred]
             if not candidates:
-                for name in names:
-                    norm=name.replace('\\','/').lstrip('./')
-                    if norm.lower().endswith(('.sqlite3','.sqlite','.db')):
-                        candidates.append(norm)
-            if not candidates:
-                raise ValueError('The backup does not contain the system database.')
+                candidates=[n.replace('\\','/').lstrip('./') for n in names if n.lower().endswith(('.sqlite3','.sqlite','.db'))]
+            if not candidates: raise ValueError('The backup does not contain the system database.')
             z.extractall(temp_dir)
-        restored=os.path.join(temp_dir, candidates[0].replace('/', os.sep))
+        restored=os.path.join(temp_dir,candidates[0].replace('/',os.sep))
         test=sqlite3.connect(restored)
         result=test.execute('PRAGMA integrity_check').fetchone()[0]
         tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        required={'users','settings'}
-        if not required.issubset(tables):
+        if not {'users','settings'}.issubset(tables):
             test.close(); raise ValueError('The selected database is not a valid Open Road system database.')
-        test.executescript(SCHEMA); test.commit(); test.close()
-        if result!='ok': raise ValueError('Database integrity check failed.')
-        conn=get_db(); conn.close(); shutil.copy2(restored,current_app.config['DATABASE_PATH'])
+        # Bring an older backup forward to the current schema before replacing live data.
+        test.executescript(SCHEMA); test.commit();
+        result_after=test.execute('PRAGMA integrity_check').fetchone()[0]
+        if result!='ok' or result_after!='ok':
+            test.close(); raise ValueError('Database integrity check failed.')
+        test.close()
+
+        live=current_app.config['DATABASE_PATH']
+        backup_dir=os.path.join(current_app.instance_path,'pre_restore_backups'); os.makedirs(backup_dir,exist_ok=True)
+        safety=os.path.join(backup_dir,'pre-restore-'+datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')+'.sqlite3')
+        live_src=get_db(); live_src.execute('PRAGMA wal_checkpoint(FULL)'); live_src.commit()
+        safety_conn=sqlite3.connect(safety); live_src.backup(safety_conn); safety_conn.commit(); safety_conn.close(); live_src.close()
+
+        # Copy using SQLite backup API into a new file, then atomically replace the live DB.
+        incoming=os.path.join(temp_dir,'incoming.sqlite3')
+        src=sqlite3.connect(restored); dest=sqlite3.connect(incoming); src.backup(dest); dest.commit(); src.close(); dest.close()
+        os.replace(incoming,live)
+
         restore_upload=os.path.join(temp_dir,'uploads')
         if os.path.isdir(restore_upload):
-            shutil.rmtree(current_app.config['UPLOAD_FOLDER'],ignore_errors=True)
-            os.makedirs(current_app.config['UPLOAD_FOLDER'],exist_ok=True)
+            shutil.rmtree(current_app.config['UPLOAD_FOLDER'],ignore_errors=True); os.makedirs(current_app.config['UPLOAD_FOLDER'],exist_ok=True)
             for path in pathlib.Path(restore_upload).rglob('*'):
                 if path.is_file():
-                    dest=pathlib.Path(current_app.config['UPLOAD_FOLDER'])/path.relative_to(restore_upload); dest.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(path,dest)
-        flash('Full backup restored successfully.','success')
-    except Exception as exc: flash('Restore rejected: '+str(exc),'error')
-    finally: shutil.rmtree(temp_dir,ignore_errors=True)
+                    destp=pathlib.Path(current_app.config['UPLOAD_FOLDER'])/path.relative_to(restore_upload); destp.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(path,destp)
+        flash('Full backup restored successfully. A pre-restore safety copy was kept on the server.','success')
+    except Exception as exc:
+        flash('Restore rejected: '+str(exc),'error')
+    finally:
+        shutil.rmtree(temp_dir,ignore_errors=True)
     return redirect(url_for('admin.dashboard'))
 
