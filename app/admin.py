@@ -307,7 +307,7 @@ def restore():
             z.extractall(temp_dir)
         restored=os.path.join(temp_dir,'database','adventures.sqlite3'); test=sqlite3.connect(restored); result=test.execute('PRAGMA integrity_check').fetchone()[0]; test.executescript(SCHEMA); test.commit(); test.close()
         if result!='ok': raise ValueError('Database integrity check failed.')
-        conn=get_db(); conn.close(); g.pop('db',None); shutil.copy2(restored,current_app.config['DATABASE_PATH'])
+        conn=get_db(); conn.close(); shutil.copy2(restored,current_app.config['DATABASE_PATH'])
         restore_upload=os.path.join(temp_dir,'uploads')
         if os.path.isdir(restore_upload):
             shutil.rmtree(current_app.config['UPLOAD_FOLDER'],ignore_errors=True)
