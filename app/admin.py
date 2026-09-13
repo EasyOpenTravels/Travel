@@ -1,4 +1,4 @@
-import os, re, shutil, sqlite3, hmac, secrets, zipfile, pathlib
+import os, re, shutil, sqlite3, hmac, secrets
 from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
@@ -53,9 +53,7 @@ def dashboard():
     }
     rows={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
     trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall(); services=db.execute('SELECT * FROM services ORDER BY sort_order,id').fetchall(); service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC LIMIT 12').fetchall()
-    visits=db.execute('SELECT * FROM visits ORDER BY id DESC LIMIT 35').fetchall()
-    errors=db.execute('SELECT * FROM error_logs ORDER BY id DESC LIMIT 35').fetchall()
-    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests,visits=visits,errors=errors)
+    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests)
 
 @admin_bp.route('/trips/new',methods=['GET','POST'])
 @admin_bp.route('/trips/<int:trip_id>/edit',methods=['GET','POST'])
@@ -172,69 +170,6 @@ def booking_status(booking_id):
     if status not in ('awaiting_payment','payment_submitted','paid','confirmed','cancelled'): abort(400)
     db=get_db(); db.execute('UPDATE bookings SET payment_status=?,paid_at=? WHERE id=?',(status,now() if status in ('paid','confirmed') else None,booking_id)); db.commit(); flash('Booking status updated.','success'); return redirect(url_for('admin.bookings'))
 
-
-@admin_bp.get('/group-retreats')
-def group_retreats_admin():
-    g=guard()
-    if g:return g
-    db=get_db(); groups=db.execute("SELECT g.*,COUNT(m.id) member_count,SUM(CASE WHEN m.payment_status='submitted' THEN 1 ELSE 0 END) submitted_count,SUM(CASE WHEN m.payment_status='approved' THEN 1 ELSE 0 END) approved_count FROM group_retreats g LEFT JOIN group_members m ON m.retreat_id=g.id GROUP BY g.id ORDER BY g.id DESC").fetchall()
-    members=db.execute('SELECT * FROM group_members ORDER BY retreat_id,id').fetchall()
-    g_member_rows={}
-    for m in members: g_member_rows.setdefault(m['retreat_id'],[]).append(m)
-    return render_template('admin_group_retreats.html',groups=groups,g_member_rows=g_member_rows)
-
-@admin_bp.post('/group-retreats/<int:group_id>/status')
-def group_retreat_status(group_id):
-    g=guard()
-    if g:return g
-    status=request.form.get('status','pending')
-    if status not in {'pending','approved','active','completed','cancelled'}: abort(400)
-    try: agreed=max(0,int(request.form.get('agreed_price','0') or 0))
-    except ValueError: agreed=0
-    db=get_db(); db.execute('UPDATE group_retreats SET status=?,agreed_price=?,approved_at=? WHERE id=?',(status,agreed,now() if status=='approved' else None,group_id)); db.commit(); flash('Group retreat updated.','success'); return redirect(url_for('admin.group_retreats_admin'))
-
-@admin_bp.post('/group-retreats/<int:group_id>/member/<int:member_id>/payment')
-def group_member_payment_admin(group_id,member_id):
-    g=guard()
-    if g:return g
-    status=request.form.get('status','pending')
-    if status not in {'pending','approved','rejected'}: abort(400)
-    db=get_db(); db.execute('UPDATE group_members SET payment_status=? WHERE id=? AND retreat_id=?',(status,member_id,group_id)); db.commit(); flash('Member payment updated.','success'); return redirect(url_for('admin.group_retreats_admin'))
-
-@admin_bp.post('/group-retreats/<int:group_id>/delete')
-def group_retreat_delete(group_id):
-    g=guard()
-    if g:return g
-    db=get_db(); db.execute('DELETE FROM group_members WHERE retreat_id=?',(group_id,)); db.execute('DELETE FROM group_retreats WHERE id=?',(group_id,)); db.commit(); flash('Group retreat deleted.','success'); return redirect(url_for('admin.group_retreats_admin'))
-
-@admin_bp.get('/event-ticketing')
-def event_ticketing():
-    g=guard()
-    if g:return g
-    db=get_db()
-    events=db.execute(
-        "SELECT e.*,u.name owner_name,COUNT(t.id) ticket_count,"
-        "SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count "
-        "FROM event_ticket_events e JOIN users u ON u.id=e.owner_user_id "
-        "LEFT JOIN event_tickets t ON t.event_id=e.id "
-        "GROUP BY e.id ORDER BY e.id DESC"
-    ).fetchall()
-    return render_template('admin_event_ticketing.html',events=events)
-
-@admin_bp.post('/event-ticketing/<int:event_id>/approve/<int:ticket_id>')
-def admin_event_ticket_approve(event_id,ticket_id):
-    g=guard()
-    if g:return g
-    db=get_db()
-    db.execute(
-        "UPDATE event_tickets SET approval_status='approved',payment_status='verified',approved_at=? "
-        "WHERE id=? AND event_id=? AND approval_status='pending'",
-        (now(),ticket_id,event_id)
-    )
-    db.commit()
-    flash('Event ticket approved.','success')
-    return redirect(url_for('admin.event_ticketing'))
-
 @admin_bp.route('/messages')
 def messages():
     g=guard()
@@ -282,108 +217,20 @@ def upload():
 def backup():
     g=guard()
     if g:return g
-    import json as _json
-    db_path=current_app.config['DATABASE_PATH']
-    upload=current_app.config['UPLOAD_FOLDER']
-    buf=io.BytesIO(); temp_db=None
-    try:
-        # Use SQLite's online backup API rather than copying the live file. This captures
-        # the actual live database safely even when WAL mode is enabled.
-        os.makedirs(os.path.join(current_app.instance_path,'backup_tmp'),exist_ok=True)
-        temp_db=os.path.join(current_app.instance_path,'backup_tmp',f'backup-{secrets.token_hex(6)}.sqlite3')
-        source=get_db()
-        source.execute('PRAGMA wal_checkpoint(FULL)')
-        source.commit()
-        dest=sqlite3.connect(temp_db)
-        source.backup(dest)
-        dest.commit(); dest.close()
-        test=sqlite3.connect(temp_db)
-        check=test.execute('PRAGMA integrity_check').fetchone()[0]
-        tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        counts={}
-        for table in sorted(tables):
-            if table.isidentifier():
-                try: counts[table]=int(test.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
-                except Exception: pass
-        test.close()
-        if check!='ok': raise ValueError('Live database integrity check failed; backup aborted.')
-        manifest={
-            'format':'open-road-full-backup-v2',
-            'created_at':now(),
-            'database_integrity':check,
-            'database_path_note':'Captured from the live DATABASE_PATH using SQLite backup API.',
-            'tables':counts,
-            'application_build':'50'
-        }
-        with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
-            z.write(temp_db,'database/adventures.sqlite3')
-            z.writestr('manifest.json',_json.dumps(manifest,indent=2))
-            z.writestr('database/README.txt','This is a live full backup captured from the configured database using SQLite online backup. Keep this ZIP private; it contains user/account data.\n')
-            if os.path.isdir(upload):
-                for path in pathlib.Path(upload).rglob('*'):
-                    if path.is_file(): z.write(path,'uploads/'+path.relative_to(upload).as_posix())
-        buf.seek(0)
-        return send_file(buf,as_attachment=True,download_name='travel-full-backup.zip',mimetype='application/zip',max_age=0)
-    finally:
-        if temp_db:
-            try: os.remove(temp_db)
-            except OSError: pass
+    db=get_db(); db.execute('PRAGMA wal_checkpoint(FULL)'); db.commit(); path=current_app.config['DATABASE_PATH']; return send_file(path,as_attachment=True,download_name='open-road-adventures-backup.sqlite3',mimetype='application/x-sqlite3')
 
 @admin_bp.post('/restore')
 def restore():
     g=guard()
     if g:return g
     f=request.files.get('backup')
-    if not f: flash('Choose a full .zip backup from this system.','error'); return redirect(url_for('admin.dashboard'))
-    temp_dir=os.path.join(current_app.instance_path,'restore_tmp_'+secrets.token_hex(4)); os.makedirs(temp_dir,exist_ok=True)
-    temp_zip=os.path.join(temp_dir,'backup.zip')
+    if not f: flash('Choose a SQLite backup.','error'); return redirect(url_for('admin.dashboard'))
+    temp=current_app.config['DATABASE_PATH']+'.restore'
     try:
-        f.save(temp_zip)
-        with zipfile.ZipFile(temp_zip) as z:
-            names=z.namelist()
-            for name in names:
-                pth=pathlib.PurePosixPath(name)
-                if pth.is_absolute() or '..' in pth.parts: raise ValueError('Unsafe backup path.')
-            preferred={'database/adventures.sqlite3','database/system.sqlite3','database/adventures.db','database/system.db','adventures.sqlite3','system.sqlite3','adventures.db','system.db'}
-            candidates=[n.replace('\\','/').lstrip('./') for n in names if n.replace('\\','/').lstrip('./') in preferred]
-            if not candidates:
-                candidates=[n.replace('\\','/').lstrip('./') for n in names if n.lower().endswith(('.sqlite3','.sqlite','.db'))]
-            if not candidates: raise ValueError('The backup does not contain the system database.')
-            z.extractall(temp_dir)
-        restored=os.path.join(temp_dir,candidates[0].replace('/',os.sep))
-        test=sqlite3.connect(restored)
-        result=test.execute('PRAGMA integrity_check').fetchone()[0]
-        tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        if not {'users','settings'}.issubset(tables):
-            test.close(); raise ValueError('The selected database is not a valid Open Road system database.')
-        # Bring an older backup forward to the current schema before replacing live data.
-        test.executescript(SCHEMA); test.commit();
-        result_after=test.execute('PRAGMA integrity_check').fetchone()[0]
-        if result!='ok' or result_after!='ok':
-            test.close(); raise ValueError('Database integrity check failed.')
-        test.close()
-
-        live=current_app.config['DATABASE_PATH']
-        backup_dir=os.path.join(current_app.instance_path,'pre_restore_backups'); os.makedirs(backup_dir,exist_ok=True)
-        safety=os.path.join(backup_dir,'pre-restore-'+datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')+'.sqlite3')
-        live_src=get_db(); live_src.execute('PRAGMA wal_checkpoint(FULL)'); live_src.commit()
-        safety_conn=sqlite3.connect(safety); live_src.backup(safety_conn); safety_conn.commit(); safety_conn.close(); live_src.close()
-
-        # Copy using SQLite backup API into a new file, then atomically replace the live DB.
-        incoming=os.path.join(temp_dir,'incoming.sqlite3')
-        src=sqlite3.connect(restored); dest=sqlite3.connect(incoming); src.backup(dest); dest.commit(); src.close(); dest.close()
-        os.replace(incoming,live)
-
-        restore_upload=os.path.join(temp_dir,'uploads')
-        if os.path.isdir(restore_upload):
-            shutil.rmtree(current_app.config['UPLOAD_FOLDER'],ignore_errors=True); os.makedirs(current_app.config['UPLOAD_FOLDER'],exist_ok=True)
-            for path in pathlib.Path(restore_upload).rglob('*'):
-                if path.is_file():
-                    destp=pathlib.Path(current_app.config['UPLOAD_FOLDER'])/path.relative_to(restore_upload); destp.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(path,destp)
-        flash('Full backup restored successfully. A pre-restore safety copy was kept on the server.','success')
-    except Exception as exc:
-        flash('Restore rejected: '+str(exc),'error')
+        f.save(temp); conn=sqlite3.connect(temp); conn.execute('PRAGMA integrity_check'); conn.executescript(SCHEMA); conn.commit(); conn.close();
+        conn=get_db(); conn.close(); g.pop('db', None); shutil.copy2(temp,current_app.config['DATABASE_PATH']); flash('Backup restored. Reload the dashboard.','success')
+    except Exception as exc: flash('Restore rejected: '+str(exc),'error')
     finally:
-        shutil.rmtree(temp_dir,ignore_errors=True)
+        try:os.remove(temp)
+        except OSError:pass
     return redirect(url_for('admin.dashboard'))
-
