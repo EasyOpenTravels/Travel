@@ -1,22 +1,11 @@
-# Open Road Adventures
+# Travel / Event Ticketing / Group Retreats
 
-Mobile-first adventure booking portal for Kenyan road trips, retreats and experiences.
+This build includes three distinct experiences:
 
-## Render
-Build command:
-`pip install -r requirements.txt`
+- **Travel tickets** remain the normal travel booking flow.
+- **Event Ticketing** lets event owners create Regular/VIP/VVIP tickets, approve payment submissions, generate secure QR tickets, create VIP/VVIP joint passes, and use a separate staff scanner.
+- **Group Retreats** lets a leader propose a group plan for 5+ people, suggest a destination/activity/date/price, receive system-admin approval, add members or let members join by Group ID, approve payments, issue individual QR passes and a joint receipt.
 
-Start command:
-`gunicorn app:app`
+Completed event and group records are automatically removed after a 30-day grace period once their dates are past. System admin can also delete group plans directly.
 
-Set only these owner credentials in Render:
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-
-Optional:
-- `BRAND_NAME`
-- `ADMIN_PATH`
-
-The owner entrance defaults to `/promise212324`.
-
-Public visitors can browse without an account. An Adventure ID is requested only when someone is ready to unlock booking/payment details.
+System admin backups are exported as a ZIP containing the SQLite database and uploaded media, and the same ZIP can be restored.

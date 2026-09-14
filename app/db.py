@@ -64,6 +64,108 @@ CREATE TABLE IF NOT EXISTS service_requests (
  budget TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL,
  FOREIGN KEY(service_id) REFERENCES services(id), FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS event_ticket_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ owner_user_id INTEGER NOT NULL,
+ slug TEXT UNIQUE NOT NULL,
+ title TEXT NOT NULL,
+ description TEXT DEFAULT '',
+ event_date TEXT DEFAULT '',
+ event_time TEXT DEFAULT '',
+ venue TEXT DEFAULT '',
+ price INTEGER NOT NULL DEFAULT 0,
+ currency TEXT NOT NULL DEFAULT 'KES',
+ payment_instructions TEXT DEFAULT '',
+ cover_image TEXT DEFAULT '',
+ ticket_note TEXT DEFAULT '',
+ regular_price INTEGER NOT NULL DEFAULT 0,
+ vip_price INTEGER NOT NULL DEFAULT 0,
+ vvip_price INTEGER NOT NULL DEFAULT 0,
+ scanner_code TEXT UNIQUE NOT NULL,
+ scanners_pin_hash TEXT NOT NULL,
+ active INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(owner_user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS event_joint_tickets (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ event_id INTEGER NOT NULL,
+ joint_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ tier TEXT NOT NULL,
+ ticket_codes TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'valid',
+ used_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(event_id) REFERENCES event_ticket_events(id)
+);
+CREATE TABLE IF NOT EXISTS group_retreats (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ group_code TEXT UNIQUE NOT NULL,
+ leader_pin_hash TEXT NOT NULL,
+ leader_user_id INTEGER,
+ leader_name TEXT NOT NULL,
+ leader_phone TEXT NOT NULL,
+ leader_email TEXT DEFAULT '',
+ title TEXT NOT NULL,
+ group_type TEXT NOT NULL DEFAULT 'Group',
+ destination TEXT NOT NULL,
+ activities TEXT NOT NULL,
+ preferred_date TEXT DEFAULT '',
+ people_count INTEGER NOT NULL,
+ suggested_price INTEGER NOT NULL DEFAULT 0,
+ agreed_price INTEGER NOT NULL DEFAULT 0,
+ notes TEXT DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'pending',
+ active INTEGER NOT NULL DEFAULT 1,
+ approved_at TEXT,
+ completed_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(leader_user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS group_members (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ retreat_id INTEGER NOT NULL,
+ name TEXT NOT NULL,
+ gender TEXT NOT NULL DEFAULT '',
+ amount_paid INTEGER NOT NULL DEFAULT 0,
+ payment_reference TEXT DEFAULT '',
+ payment_status TEXT NOT NULL DEFAULT 'pending',
+ pass_type TEXT NOT NULL DEFAULT 'individual',
+ pass_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ checked_in_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(retreat_id) REFERENCES group_retreats(id)
+);
+CREATE TABLE IF NOT EXISTS event_tickets (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ event_id INTEGER NOT NULL,
+ attendee_user_id INTEGER,
+ attendee_name TEXT NOT NULL,
+ attendee_gender TEXT NOT NULL DEFAULT '',
+ attendee_phone TEXT DEFAULT '',
+ attendee_email TEXT DEFAULT '',
+ ticket_code TEXT UNIQUE NOT NULL,
+ signature TEXT NOT NULL,
+ payment_method TEXT NOT NULL DEFAULT 'M-Pesa',
+ payment_reference TEXT DEFAULT '',
+ amount INTEGER NOT NULL DEFAULT 0,
+ ticket_tier TEXT NOT NULL DEFAULT 'regular',
+ source TEXT NOT NULL DEFAULT 'visitor',
+ access_token TEXT UNIQUE,
+ payment_status TEXT NOT NULL DEFAULT 'submitted',
+ approval_status TEXT NOT NULL DEFAULT 'pending',
+ ticket_status TEXT NOT NULL DEFAULT 'valid',
+ design TEXT NOT NULL DEFAULT 'classic',
+ checked_in_at TEXT,
+ approved_at TEXT,
+ created_at TEXT NOT NULL,
+ FOREIGN KEY(event_id) REFERENCES event_ticket_events(id),
+ FOREIGN KEY(attendee_user_id) REFERENCES users(id)
+);
+
 '''
 
 def get_db():
@@ -101,12 +203,50 @@ def init_db(app):
                 'followup_sent': 'ALTER TABLE bookings ADD COLUMN followup_sent INTEGER NOT NULL DEFAULT 0',
             },
             'trips': {'gallery': "ALTER TABLE trips ADD COLUMN gallery TEXT DEFAULT ''"},
+            'event_ticket_events': {
+                'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',
+                'vip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vip_price INTEGER NOT NULL DEFAULT 0',
+                'vvip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vvip_price INTEGER NOT NULL DEFAULT 0',
+                'scanner_code': 'ALTER TABLE event_ticket_events ADD COLUMN scanner_code TEXT',
+            },
+            'event_tickets': {
+                'attendee_gender': "ALTER TABLE event_tickets ADD COLUMN attendee_gender TEXT NOT NULL DEFAULT ''",
+                'ticket_tier': "ALTER TABLE event_tickets ADD COLUMN ticket_tier TEXT NOT NULL DEFAULT 'regular'",
+                'source': "ALTER TABLE event_tickets ADD COLUMN source TEXT NOT NULL DEFAULT 'visitor'",
+                'access_token': 'ALTER TABLE event_tickets ADD COLUMN access_token TEXT',
+            },
         }
         for table, cols in upgrades.items():
             existing = _column_names(db, table)
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
+
+        import secrets
+        # Backfill scanner/access identifiers on databases created by earlier builds.
+        if 'scanner_code' in _column_names(db, 'event_ticket_events'):
+            rows = db.execute("SELECT id FROM event_ticket_events WHERE scanner_code IS NULL OR scanner_code=''").fetchall()
+            for r in rows:
+                db.execute('UPDATE event_ticket_events SET scanner_code=? WHERE id=?', ('SCN-' + secrets.token_hex(4).upper(), r['id']))
+        if 'access_token' in _column_names(db, 'event_tickets'):
+            rows = db.execute("SELECT id FROM event_tickets WHERE access_token IS NULL OR access_token=''").fetchall()
+            for r in rows:
+                db.execute('UPDATE event_tickets SET access_token=? WHERE id=?', (secrets.token_urlsafe(24), r['id']))
+
+        # Remove completed event/group records after a 30-day grace period.
+        try:
+            old_events = db.execute("SELECT id FROM event_ticket_events WHERE active=1 AND event_date!='' AND event_date < date('now','-30 day')").fetchall()
+            for r in old_events:
+                db.execute('DELETE FROM event_joint_tickets WHERE event_id=?',(r['id'],))
+                db.execute('DELETE FROM event_tickets WHERE event_id=?',(r['id'],))
+                db.execute('DELETE FROM event_ticket_events WHERE id=?',(r['id'],))
+            old_groups = db.execute("SELECT id FROM group_retreats WHERE active=1 AND preferred_date!='' AND preferred_date < date('now','-30 day')").fetchall()
+            for r in old_groups:
+                db.execute('DELETE FROM group_members WHERE retreat_id=?',(r['id'],))
+                db.execute('DELETE FROM group_retreats WHERE id=?',(r['id'],))
+            db.commit()
+        except Exception:
+            pass
 
         defaults = {
             'promo_counter': '3401',

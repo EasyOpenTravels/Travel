@@ -7,35 +7,7 @@
 <section class="section"><div class="section-head"><div><div class="eyebrow">FROM THE ROAD</div><h2>Stories that make the next trip easier to say yes to.</h2></div></div><div class="post-grid">{% for p in posts %}<a class="post-card" href="{{ url_for('public.post',post_id=p.id) }}">{% if p.image %}<div class="post-image" style="background-image:url('{{ p.image }}')"></div>{% endif %}<div><span class="eyebrow">{{ p.category }}</span><h3>{{ p.title }}</h3><p>{{ p.excerpt }}</p><span class="card-cta">Read it →</span></div></a>{% endfor %}</div></section>
 <section class="cta-band"><div><div class="eyebrow">YOUR CREW. YOUR MOVE.</div><h2>See something you like? Let's put a date on it.</h2></div><a class="button light" href="{{ url_for('public.contact') }}">Talk to the Adventure Team</a></section>
 {% endblock %}
-{% block scripts %}
-<script>
-(function(){
-  const el=document.querySelector('.live-collage');
-  if(el){
-    let imgs=[];
-    try{imgs=JSON.parse(el.dataset.liveImages||'[]')}catch(e){}
-    if(imgs.length){
-      let i=0, a=el.querySelector('.photo-a'), b=el.querySelector('.photo-b');
-      const show=()=>{
-        a.style.backgroundImage=`url("${imgs[i%imgs.length]}")`;
-        b.style.backgroundImage=`url("${imgs[(i+1)%imgs.length]}")`;
-        i=(i+1)%imgs.length;
-      };
-      show();
-      setInterval(show,9000);
-    }
-  }
-  const target=location.origin+'/';
-  document.getElementById('shareOpenRoad')?.addEventListener('click',async()=>{
-    try{
-      if(navigator.share){
-        await navigator.share({title:'Open Road Adventures',text:'Find a place worth leaving the house for.',url:target});
-      }else if(navigator.clipboard){
-        await navigator.clipboard.writeText(target);
-        alert('Open Road link copied.');
-      }
-    }catch(e){}
-  });
-})();
-</script>
-{% endblock %}
+{% block scripts %}<script>
+(function(){const el=document.querySelector('.live-collage');if(el){let imgs=[];try{imgs=JSON.parse(el.dataset.liveImages||'[]')}catch(e){};if(imgs.length){let i=0,a=el.querySelector('.photo-a'),b=el.querySelector('.photo-b');const show=()=>{a.style.backgroundImage=`url("${imgs[i%imgs.length]}")`;b.style.backgroundImage=`url("${imgs[(i+1)%imgs.length]}")`;i=(i+1)%imgs.length};show();setInterval(show,9000)}}
+const target=location.origin+'/';document.getElementById('shareOpenRoad')?.addEventListener('click',async()=>{try{if(navigator.share){await navigator.share({title:'Open Road Adventures',text:'Find a place worth leaving the house for.',url:target)}else{await navigator.clipboard.writeText(target);alert('Open Road link copied.')}}catch(e){}});})();
+</script>{% endblock %}
