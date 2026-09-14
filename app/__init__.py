@@ -1,7 +1,7 @@
-import os, secrets, logging, traceback
+import os, secrets
 from pathlib import Path
 from flask import Flask, request
-from .db import init_db, get_db
+from .db import init_db
 
 def _secret(path):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
@@ -18,15 +18,6 @@ def create_app():
     import base64
     app.jinja_env.filters['b64encode'] = lambda b: base64.b64encode(b).decode('ascii')
     app.jinja_env.filters['fromjson'] = lambda s: __import__('json').loads(s or '[]')
-    def _rotating_image(images, key=''):
-        import hashlib, time
-        vals=[x.strip() for x in str(images or '').split('|') if x.strip()]
-        if not vals: return ''
-        # Same place changes on the hour; a stable key keeps the change tied to the place.
-        hour=int(time.time()//3600)
-        seed=int(hashlib.sha256(str(key).lower().encode('utf-8')).hexdigest()[:12],16)
-        return vals[(hour + seed) % len(vals)]
-    app.jinja_env.filters['rotating_image'] = _rotating_image
     app.config.update(
         SECRET_KEY=os.environ.get('FLASK_SECRET_KEY') or _secret(Path(app.instance_path)/'session-secret.key'),
         DATABASE_PATH=os.environ.get('DATABASE_PATH', str(Path(app.instance_path)/'adventures.sqlite3')),
@@ -46,26 +37,13 @@ def create_app():
     app.register_blueprint(bp)
     app.register_blueprint(admin_bp, url_prefix='/'+app.config['ADMIN_PATH'])
     @app.errorhandler(404)
-    def not_found(err):
-        try:
-            db=get_db(); uid=request.cookies.get('visitor_key','')
-            db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                       (__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),404,request.path,request.method,type(err).__name__,str(err),'',request.args.get('_uid'),uid,request.headers.get('User-Agent','')[:600],request.remote_addr or '')); db.commit()
-        except Exception: app.logger.exception('Could not persist 404 analytics')
-        return __import__('flask').render_template('not_found.html'), 404
+    def not_found(_): return __import__('flask').render_template('not_found.html'), 404
     @app.errorhandler(500)
-    def server_error(err):
-        tb=traceback.format_exc()
-        try:
-            db=get_db(); db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                       (__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),500,request.path,request.method,type(err).__name__,str(err),tb[-12000:],request.cookies.get('_uid'),request.cookies.get('visitor_key',''),request.headers.get('User-Agent','')[:600],request.remote_addr or '')); db.commit()
-        except Exception: app.logger.exception('Could not persist 500 analytics')
-        return __import__('flask').render_template('error.html'), 500
+    def server_error(_): return __import__('flask').render_template('error.html'), 500
     @app.after_request
     def headers(resp):
         resp.headers['X-Content-Type-Options']='nosniff'; resp.headers['X-Frame-Options']='DENY'; resp.headers['Referrer-Policy']='strict-origin-when-cross-origin'
-        if request.path == '/sw.js': resp.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
-        elif request.path.startswith('/'+app.config['ADMIN_PATH']): resp.headers['Cache-Control']='no-store'
+        if request.path.startswith('/'+app.config['ADMIN_PATH']): resp.headers['Cache-Control']='no-store'
         return resp
     return app
 app = create_app()
