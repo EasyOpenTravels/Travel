@@ -1,5 +1,7 @@
-import re, secrets, sqlite3, os, hmac
+from io import BytesIO
+import re, secrets, sqlite3, os, hmac, json
 from datetime import datetime, timezone
+from pathlib import Path
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
@@ -24,11 +26,36 @@ def promo_value():
     except ValueError: days=0
     return base + days*growth
 
+def _request_ip():
+    # Keep the first proxy address for admin diagnostics; deployment may sit behind a proxy.
+    forwarded=request.headers.get('X-Forwarded-For','')
+    return (forwarded.split(',')[0].strip() if forwarded else request.remote_addr or '')[:120]
+
+def _ua_details(ua=''):
+    ua=ua or ''
+    platform='Android' if 'Android' in ua else ('iPhone/iPad' if ('iPhone' in ua or 'iPad' in ua) else ('Windows' if 'Windows' in ua else ('Mac' if 'Macintosh' in ua else ('Linux' if 'Linux' in ua else 'Other'))))
+    browser='Chrome' if 'Chrome/' in ua and 'Edg/' not in ua else ('Edge' if 'Edg/' in ua else ('Safari' if 'Safari/' in ua and 'Chrome/' not in ua else ('Firefox' if 'Firefox/' in ua else 'Other')))
+    model=''
+    m=re.search(r'Android[^;)]*;\s*(?:[a-z]{2}-[A-Z]{2};\s*)?(?:wv;\s*)?([^;\)]+)',ua)
+    if m: model=m.group(1).strip()
+    if model in {'K','wv','Mobile'}: model=''
+    return model[:120],platform,browser
+
 def log_visit():
-    if request.path.startswith('/static/') or request.path.startswith('/media/') or request.path.startswith('/api/'):
+    if request.path.startswith(('/static/','/media/','/api/','/pulse_receiver','/health')):
         return
     key=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
-    db=get_db(); db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(key,request.path,now())); db.commit(); request._visitor_key=key
+    me=None
+    try:
+        uid=session.get('user_id')
+        if uid: me=get_db().execute('SELECT id,name,email,phone FROM users WHERE id=? AND deleted_at IS NULL',(uid,)).fetchone()
+    except Exception:
+        me=None
+    model,platform,browser=_ua_details(request.headers.get('User-Agent',''))
+    db=get_db(); cur=db.execute(
+        'INSERT INTO visits(visitor_key,path,created_at,user_id,name,email,phone,method,referrer,user_agent,ip_address,device_model,platform,browser) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (key,request.path,now(), me['id'] if me else None, me['name'] if me else '', me['email'] if me else '', me['phone'] if me else '', request.method, request.referrer or '', request.headers.get('User-Agent','')[:600], _request_ip(), model, platform, browser))
+    db.commit(); request._visitor_key=key; request._visit_id=cur.lastrowid
 
 @bp.before_request
 def before(): log_visit()
@@ -40,10 +67,52 @@ def visitor_cookie(response):
         response.set_cookie('visitor_key',key,max_age=31536000,httponly=True,samesite='Lax',secure=request.is_secure)
     return response
 
+@bp.get('/favicon.ico')
+def favicon():
+    from flask import send_from_directory
+    return send_from_directory(current_app.static_folder, 'icon.svg', mimetype='image/svg+xml')
+
 @bp.get('/health')
 def health(): return jsonify(ok=True, service='open-road-adventures')
 @bp.route('/pulse_receiver',methods=['GET','POST'])
 def pulse_receiver(): return jsonify(ok=True, received=True)
+
+@bp.post('/telemetry')
+def telemetry():
+    key=request.cookies.get('visitor_key')
+    if not key: return jsonify(ok=True)
+    data=request.get_json(silent=True) or {}
+    model=str(data.get('model','') or '')[:120]
+    platform=str(data.get('platform','') or '')[:120]
+    browser=str(data.get('browser','') or '')[:200]
+    try:
+        db=get_db()
+        db.execute(
+            "UPDATE visits SET device_model=CASE WHEN ? <> '' THEN ? ELSE device_model END, platform=CASE WHEN ? <> '' THEN ? ELSE platform END, browser=CASE WHEN ? <> '' THEN ? ELSE browser END WHERE id=(SELECT id FROM visits WHERE visitor_key=? ORDER BY id DESC LIMIT 1)",
+            (model, model, platform, platform, browser, browser, key)
+        )
+        db.commit()
+    except Exception:
+        current_app.logger.exception('Telemetry persistence failed')
+    return jsonify(ok=True)
+
+@bp.post('/client-error')
+def client_error():
+    data=request.get_json(silent=True) or {}
+    db=get_db(); key=request.cookies.get('visitor_key','')
+    uid=session.get('user_id')
+    page=str(data.get('page') or request.referrer or request.path)[:500]
+    raw_message=str(data.get('message','Client-side error'))[:3500]
+    kind=str(data.get('kind','ClientError'))[:100]
+    source=str(data.get('source',''))[:300]
+    line=str(data.get('line',''))[:20]
+    column=str(data.get('column',''))[:20]
+    message=raw_message
+    if source or line or column:
+        message=f'{raw_message} | source={source or "n/a"} | line={line or "0"} | column={column or "0"}'
+    stack=str(data.get('stack',''))[:10000]
+    db.execute('INSERT INTO error_logs(occurred_at,status_code,path,method,error_type,message,traceback,user_id,visitor_key,user_agent,ip_address) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(now(),0,page,request.method,kind,message,extra+'\n'+stack,uid,key,request.headers.get('User-Agent','')[:600],_request_ip())); db.commit()
+    return jsonify(ok=True)
 
 @bp.get('/')
 def home():
@@ -51,13 +120,17 @@ def home():
     trips=list(db.execute("SELECT * FROM trips WHERE status='published' ORDER BY date").fetchall())
     destinations=list(db.execute('SELECT * FROM destinations WHERE active=1 ORDER BY sort_order,id').fetchall())
     posts=list(db.execute('SELECT * FROM posts WHERE published=1 ORDER BY id DESC').fetchall())
-    # Small rotation keeps the public page feeling alive without changing admin data.
-    day=datetime.now(timezone.utc).date().toordinal()
+    # Rotate the public selection several times a day without changing admin data.
+    # Active destinations / published trips are always the source of truth, so additions
+    # and removals made by the system flow into the public page automatically.
+    rotation_slot=int(datetime.now(timezone.utc).timestamp() // (6*60*60))
     if destinations:
-        shift=day % len(destinations); destinations=(destinations[shift:]+destinations[:shift])[:12]
+        # Deterministic per-slot rotation keeps a stable page for a few hours, then
+        # presents a different starting place without reshuffling records in storage.
+        shift=rotation_slot % len(destinations); destinations=(destinations[shift:]+destinations[:shift])[:12]
     else: destinations=[]
     if trips:
-        shift=day % len(trips); trips=(trips[shift:]+trips[:shift])[:12]
+        shift=rotation_slot % len(trips); trips=(trips[shift:]+trips[:shift])[:12]
     else: trips=[]
     posts=posts[:6]
     return render_template('home.html',trips=trips,destinations=destinations,posts=posts,promo=promo_value(),q='')
@@ -68,7 +141,7 @@ def search():
     db=get_db(); trips=[]; destinations=[]; services=[]
     if q:
         like='%'+q+'%'
-        trips=db.execute("SELECT * FROM trips WHERE status='published' AND (title LIKE ? OR destination LIKE ? OR description LIKE ?) ORDER BY date LIMIT 24",(like,like,like)).fetchall()
+        trips=db.execute("SELECT * FROM trips WHERE status='published' AND (title LIKE ? OR destination LIKE ? OR description LIKE ? OR pickup LIKE ? OR itinerary LIKE ?) ORDER BY LOWER(title), date, id LIMIT 100",(like,like,like,like,like)).fetchall()
         destinations=db.execute("SELECT * FROM destinations WHERE active=1 AND (title LIKE ? OR subtitle LIKE ? OR vibe LIKE ?) ORDER BY sort_order,id LIMIT 24",(like,like,like)).fetchall()
     posts=db.execute("SELECT * FROM posts WHERE published=1 AND (title LIKE ? OR excerpt LIKE ? OR body LIKE ?) ORDER BY id DESC LIMIT 12",('%'+q+'%','%'+q+'%','%'+q+'%')).fetchall() if q else []
     return render_template('search.html',q=q,trips=trips,destinations=destinations,posts=posts,promo=promo_value())
@@ -77,7 +150,7 @@ def search():
 def destination(slug):
     d=get_db().execute('SELECT * FROM destinations WHERE slug=? AND active=1',(slug,)).fetchone()
     if not d: abort(404)
-    related=get_db().execute("SELECT * FROM trips WHERE status='published' AND destination LIKE ? ORDER BY date LIMIT 8",('%'+d['title'].split()[0]+'%',)).fetchall()
+    related=get_db().execute("SELECT * FROM trips WHERE status='published' AND (destination LIKE ? OR title LIKE ? OR description LIKE ?) ORDER BY LOWER(title), date, id LIMIT 24",('%'+d['title'].split()[0]+'%','%'+d['title'].split()[0]+'%','%'+d['title'].split()[0]+'%')).fetchall()
     return render_template('destination.html',destination=d,related=related)
 
 @bp.get('/trip/<slug>')
@@ -704,6 +777,726 @@ def event_scan(ticket_code):
     guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
     return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance=guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
 
+@bp.before_request
+def _ensure_stuff_session():
+    # Backward compatibility only: older builds used a My Stuff-specific lock.
+    # The current app uses one optional account-wide Open Road ID instead.
+    uid = session.get('user_id')
+    if session.get('_stuff_user_id') != uid:
+        session.pop('stuff_unlocked', None)
+        session['_stuff_user_id'] = uid
+
+
+def _current_user_for_stuff():
+    # My Stuff is an independent personal workspace. It never uses the
+    # normal Adventure PIN/login gate. Authenticated users use their account;
+    # visitors get a private anonymous workspace identified only by a session
+    # token. This keeps Travel booking/authentication completely unchanged.
+    uid = session.get('user_id') or session.get('stuff_user_id')
+    if not uid:
+        return _ensure_stuff_guest_user()
+    return get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL', (uid,)).fetchone()
+
+
+def _ensure_stuff_guest_user():
+    existing = session.get('stuff_user_id')
+    db = get_db()
+    if existing:
+        row = db.execute('SELECT * FROM users WHERE id=? AND is_stuff_guest=1 AND deleted_at IS NULL', (existing,)).fetchone()
+        if row:
+            return row
+    guest_key = secrets.token_hex(16)
+    # Guest rows are deliberately unusable for normal Travel login.
+    cur = db.execute(
+        "INSERT INTO users(name,phone,email,pin_hash,recovery_question,recovery_answer_hash,is_stuff_guest,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        ('My Stuff Guest', 'guest-' + guest_key[:12], 'stuff-' + guest_key + '@local.openroad', hash_pin(secrets.token_hex(16)), 'none', hash_answer(secrets.token_hex(16)), 1, now())
+    )
+    db.commit()
+    session['stuff_user_id'] = cur.lastrowid
+    return db.execute('SELECT * FROM users WHERE id=?', (cur.lastrowid,)).fetchone()
+
+
+def _global_simple_id_hash(user):
+    # Migrate the previous My Stuff ID into the single app-wide ID lazily.
+    return user['simple_id_hash'] or user['stuff_id_hash']
+
+
+def _stuff_colors():
+    return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white', 'red', 'purple', 'navy', 'mint', 'rose', 'coral', 'sky', 'ink', 'peach', 'lemon', 'violet', 'sand', 'cyan', 'magenta']
+
+def _journal_moods():
+    return ['morning', 'midday', 'evening']
+
+def _journal_secret_set(user):
+    return bool(user['journal_secret_hash'])
+
+def _journal_unlocked(user):
+    return not _journal_secret_set(user) or session.get('journal_unlocked_user') == user['id']
+
+def _journal_require_unlock(user):
+    if _journal_unlocked(user):
+        return None
+    return render_template('journal_lock.html')
+
+def _journal_excerpt(body, limit=190):
+    text=re.sub(r'\s+', ' ', (body or '')).strip()
+    return text if len(text) <= limit else text[:limit-1].rstrip() + '…'
+
+
+def _safe_stuff_image_name(original):
+    from werkzeug.utils import secure_filename
+    base = secure_filename(original) or 'image'
+    stem = base.rsplit('.', 1)[0][:55]
+    return f"{stem}-{secrets.token_hex(5)}.jpg"
+
+
+def _stuff_redirect(section='journal'):
+    return redirect(url_for('public.my_stuff', section=section))
+
+
+
+def _stuff_id_ready(user):
+    return bool(_global_simple_id_hash(user))
+
+def _cards_allowed(user):
+    return _stuff_id_ready(user) or int(user['stuff_card_uses'] or 0) <= 5
+
+
+def _stuff_use_and_context(user, column):
+    db=get_db()
+    db.execute(f"UPDATE users SET {column}=COALESCE({column},0)+1 WHERE id=?", (user['id'],))
+    db.commit()
+    refreshed=db.execute('SELECT * FROM users WHERE id=?', (user['id'],)).fetchone()
+    return refreshed
+
+def _render_stuff_id_form(next_endpoint):
+    return url_for('public.my_stuff_id', next=next_endpoint)
+
+def _journal_sidebar_data(user, view='active'):
+    db=get_db()
+    journals=db.execute("SELECT * FROM journal_entries WHERE user_id=? AND archived=? ORDER BY favorite DESC, updated_at DESC, id DESC", (user['id'], 1 if view=='archived' else 0)).fetchall()
+    journal_count=db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=0',(user['id'],)).fetchone()['n']
+    archived_count=db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=1',(user['id'],)).fetchone()['n']
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    return journals, journal_count, archived_count, cards
+
+@bp.get('/my-stuff')
+def my_stuff():
+    # My Stuff is always an open doorway. It must never show a PIN/login gate.
+    # Journal, Cards, Copy & Paste and Edits Studio are all independently accessible.
+    # None of them redirects to the normal Adventure PIN/login gate.
+    return render_template('my_stuff.html')
+
+@bp.get('/my-stuff/journal')
+def my_stuff_journal():
+    user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    user=_stuff_use_and_context(user,'stuff_journal_uses')
+    view=request.args.get('view','active').strip().lower()
+    if view not in {'active','archived'}: view='active'
+    selected=request.args.get('entry','').strip()
+    edit_mode=request.args.get('edit')=='1' or request.args.get('write')=='1'
+    journals,count,archived_count,_cards=_journal_sidebar_data(user,view)
+    entry=None
+    if selected.isdigit():
+        entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
+    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user))
+
+@bp.get('/my-stuff/journal/settings')
+def my_stuff_journal_settings():
+    user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    return render_template('journal_settings.html', journal_secret_set=_journal_secret_set(user), simple_id_exists=_stuff_id_ready(user))
+
+@bp.post('/my-stuff/journal/settings')
+def my_stuff_journal_settings_save():
+    user=_current_user_for_stuff()
+    action=request.form.get('action','').strip()
+    db=get_db()
+    if action=='set-secret':
+        value=request.form.get('secret_id','').strip()
+        if not re.fullmatch(r'[A-Za-z0-9]{4,12}', value):
+            flash('Use 4–12 letters or numbers for your Journal secret.','error')
+        else:
+            db.execute('UPDATE users SET journal_secret_hash=? WHERE id=?',(hash_pin(value),user['id'])); db.commit(); session['journal_unlocked_user']=user['id']; flash('Journal secret is active. It protects Journal only.','success')
+    elif action=='remove-secret':
+        db.execute('UPDATE users SET journal_secret_hash=NULL WHERE id=?',(user['id'],)); db.commit(); session.pop('journal_unlocked_user',None); flash('Journal secret removed.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/journal/unlock')
+def my_stuff_journal_unlock():
+    user=_current_user_for_stuff(); value=request.form.get('secret_id','').strip()
+    if _journal_secret_set(user) and verify_pin(user['journal_secret_hash'], value):
+        session['journal_unlocked_user']=user['id']; return redirect(url_for('public.my_stuff_journal'))
+    flash('That Journal secret is not correct.','error'); return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/id')
+def my_stuff_id():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    value=request.form.get('simple_id','').strip()
+    nxt=request.form.get('next','journal').strip().lower()
+    destinations={'journal':'public.my_stuff_journal','cards':'public.my_stuff_cards','copy-paste':'public.my_stuff_copy_paste','color-cards':'public.my_stuff_color_cards','edits-studio':'public.my_stuff_edits_studio'}
+    if not re.fullmatch(r'[A-Za-z0-9]{4,8}',value):
+        flash('Choose a simple 4–8 character ID using letters and numbers.','error')
+    elif _global_simple_id_hash(user):
+        flash('You already have an Open Road ID. The same ID is used throughout the app.','error')
+    else:
+        db=get_db(); db.execute('UPDATE users SET simple_id_hash=? WHERE id=?',(hash_pin(value),user['id'])); db.commit()
+        flash('Your Open Road ID is ready. Use the same ID throughout Open Road.','success')
+    endpoint=destinations.get(nxt,'public.my_stuff_journal')
+    return redirect(url_for(endpoint))
+
+@bp.post('/my-stuff/journal/save')
+def my_stuff_journal_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); entry_id=request.form.get('entry_id','').strip(); title=request.form.get('title','').strip()[:140]
+    body=request.form.get('body','').strip(); mood=request.form.get('mood','morning').strip().lower(); segments_json=request.form.get('segments_json','').strip(); tags=request.form.get('tags','').strip()[:240]; cover_color=request.form.get('cover_color','cream').strip().lower()
+    if mood not in _journal_moods(): mood='morning'
+    if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
+    clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
+    if not title or not body:
+        flash('Give your journal story a title and some words first.','error'); return redirect(url_for('public.my_stuff_journal'))
+    if entry_id:
+        owned=db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+        if not owned: abort(404)
+        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,segments_json=?,updated_at=? WHERE id=? AND user_id=?',(title,body,mood,clean_tags,cover_color,segments_json,now(),entry_id,user['id'])); saved_id=int(entry_id); msg='Journal story updated.'
+    else:
+        cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',(user['id'],title,body,mood,clean_tags,cover_color,segments_json,now(),now())); saved_id=cur.lastrowid; msg='Journal story saved.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_journal',entry=saved_id))
+
+@bp.get('/my-stuff/journal/<int:entry_id>')
+def my_stuff_journal_view(entry_id):
+    user=_current_user_for_stuff(); blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    row=get_db().execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    return redirect(url_for('public.my_stuff_journal', entry=entry_id, edit='1' if request.args.get('edit')=='1' else None))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/favorite')
+def my_stuff_journal_favorite(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); row=db.execute('SELECT favorite FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET favorite=? WHERE id=? AND user_id=?',(0 if row['favorite'] else 1,entry_id,user['id'])); db.commit()
+    return redirect(request.form.get('next') or url_for('public.my_stuff_journal',entry=entry_id))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/archive')
+def my_stuff_journal_archive(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); row=db.execute('SELECT archived FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET archived=? WHERE id=? AND user_id=?',(0 if row['archived'] else 1,entry_id,user['id'])); db.commit(); flash('Journal story updated.','success')
+    return redirect(url_for('public.my_stuff_journal',view='archived' if not row['archived'] else 'active'))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/delete')
+def my_stuff_journal_delete(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); cur=db.execute('DELETE FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
+    if not cur.rowcount: abort(404)
+    flash('Journal story deleted.','success'); return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/save')
+def my_stuff_folder_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); folder_id=request.form.get('folder_id','').strip(); name=request.form.get('name','').strip()[:60]; color=request.form.get('color','lime')
+    if color not in _stuff_colors(): color='lime'
+    if not name: flash('Give the folder a name.','error'); return redirect(url_for('public.my_stuff_journal'))
+    try:
+        if folder_id: db.execute('UPDATE stuff_folders SET name=?,color=? WHERE id=? AND user_id=?',(name,color,folder_id,user['id']))
+        else: db.execute('INSERT INTO stuff_folders(user_id,name,color,created_at) VALUES(?,?,?,?)',(user['id'],name,color,now()))
+        db.commit(); flash('Folder saved.','success')
+    except sqlite3.IntegrityError: flash('You already have a folder with that name.','error')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/<int:folder_id>/delete')
+def my_stuff_folder_delete(folder_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])); db.commit(); flash('Folder deleted.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.get('/my-stuff/cards')
+def my_stuff_cards():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_card_uses')
+    use_count=int(user['stuff_card_uses'] or 0)
+    has_id=_stuff_id_ready(user)
+    if not has_id and use_count > 5:
+        return render_template('my_cards.html',user=user,cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall(),folders=get_db().execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall(),card_locked=True,card_use_count=use_count,simple_id_exists=False)
+    db=get_db()
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    folders=db.execute('SELECT * FROM stuff_folders WHERE user_id=? ORDER BY name',(user['id'],)).fetchall()
+    return render_template('my_cards.html',user=user,cards=cards,folders=folders,card_locked=False,card_use_count=use_count,simple_id_exists=has_id)
+
+@bp.post('/my-stuff/card/save')
+def my_stuff_card_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user):
+        flash('Create your Open Road ID to keep using Card Maker.','error'); return redirect(url_for('public.my_stuff_cards'))
+    db=get_db(); card_id=request.form.get('card_id','').strip(); title=request.form.get('title','').strip()[:100]; body=request.form.get('body','').strip(); color=request.form.get('color','lime'); folder_id=request.form.get('folder_id') or None
+    font_style=request.form.get('font_style','bold').strip().lower(); shape_style=request.form.get('shape_style','sticky').strip().lower(); design_style=request.form.get('design_style','sunny').strip().lower(); background_style=request.form.get('background_style','solid').strip().lower()
+    # QR is mandatory on exported cards; the user may only choose the optional brand footer.
+    qr_enabled=1
+    signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
+    decoration=request.form.get('decoration','spark').strip().lower()
+    allowed_colors={'yellow','blue','pink','aqua','lime','orange','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}
+    allowed_fonts={'bold','soft','mono','hand','serif','display','light','wide','typewriter','comic','caps','elegant'}
+    allowed_shapes={'sticky','rounded','ticket','cloud','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}
+    allowed_decoration={'spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'}
+    if color not in allowed_colors: color='lime'
+    if font_style not in allowed_fonts: font_style='bold'
+    if shape_style not in allowed_shapes: shape_style='sticky'
+    if design_style not in {'sunny','pastel','marker','minimal','night','playful'}: design_style='sunny'
+    if background_style not in {'solid','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}: background_style='solid'
+    if decoration not in allowed_decoration: decoration='spark'
+    if folder_id and not db.execute('SELECT id FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])).fetchone(): folder_id=None
+    if not body and not title:
+        flash('Write a topic or body on your card first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
+    after_save=request.form.get('after_save','').strip().lower()
+    if card_id:
+        db.execute('UPDATE stuff_cards SET folder_id=?,title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,qr_enabled=?,signature_enabled=?,decoration=?,updated_at=? WHERE id=? AND user_id=?',(folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,now(),card_id,user['id'])); msg='Card updated.'; saved_id=int(card_id)
+    else:
+        cur=db.execute('INSERT INTO stuff_cards(user_id,folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(user['id'],folder_id,title,body,color,font_style,shape_style,design_style,background_style,qr_enabled,signature_enabled,decoration,now(),now())); msg='Card saved.'; saved_id=int(cur.lastrowid)
+    db.commit(); flash(msg,'success')
+    wants_json='application/json' in request.headers.get('Accept','') or request.headers.get('X-Requested-With')=='XMLHttpRequest'
+    if after_save == 'png':
+        download_url=url_for('public.my_stuff_card_download', card_id=saved_id, style=design_style, seed=saved_id, brand=('1' if signature_enabled else '0'))
+        if wants_json:
+            return jsonify(ok=True, saved_id=saved_id, message=msg, download_url=download_url)
+        return redirect(download_url)
+    if wants_json:
+        return jsonify(ok=True, saved_id=saved_id, message=msg, download_url='')
+
+    if after_save in {'stay','edits'}:
+        return redirect(url_for('public.my_stuff_edits_studio', saved=saved_id))
+    return redirect(url_for('public.my_stuff_cards'))
+
+
+
+def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
+    from PIL import Image, ImageDraw, ImageFont
+    from io import BytesIO
+    W,H=1600,1000
+    palettes={
+        'lime':('#dff579','#15201b','#82af43'),'aqua':('#a9e8df','#112027','#3faaa0'),
+        'orange':('#ffc080','#261710','#cc6f33'),'pink':('#ffb9cf','#28121c','#cf5b83'),
+        'blue':('#a9c9ff','#112031','#5679bc'),'yellow':('#ffe06a','#221d0d','#c2911d'),
+        'teal':('#71d6c7','#10211f','#2e978d'),'white':('#fffdf8','#172028','#98a3a7'),
+        'red':('#ff7a7a','#331616','#a83f3f'),'purple':('#c9a7ff','#281d3a','#8152c8'),'navy':('#223b67','#f8fbff','#6ea4ff'),'mint':('#b9f3d4','#153027','#55ae82'),'rose':('#f7a7ba','#34151d','#b64e6d'),'coral':('#ff9a7a','#351913','#bc5d43'),'sky':('#83d8ff','#142b38','#398cb4'),'ink':('#25313a','#fff','#83d8ff'),'peach':('#ffd1ad','#39251b','#cc7b44'),'lemon':('#f7f06a','#2d2b0e','#b9a92a'),'violet':('#a98bff','#24183f','#7653ba'),'sand':('#e8cf9d','#2f271a','#a9853b'),'cyan':('#69dce5','#122b2f','#329ca4'),'magenta':('#e58cc7','#351a2d','#ad4f91')}
+    bg,ink,accent=palettes.get(card['color'],palettes['lime'])
+    font_style=getattr(card,'_export_font','bold') or 'bold'
+    shape=getattr(card,'_export_shape','sticky') or 'sticky'
+    design=getattr(card,'_export_design','sunny') or 'sunny'
+    background=getattr(card,'_export_background','solid') or 'solid'
+    decoration=getattr(card,'_export_decoration','spark') or 'spark'
+    custom_bg=getattr(card,'_export_custom_bg','') or ''
+    custom_text=getattr(card,'_export_custom_text','') or ''
+    text_align=getattr(card,'_export_text_align','left') or 'left'
+    try: font_scale=max(75,min(140,int(getattr(card,'_export_font_scale',100) or 100)))
+    except (TypeError,ValueError): font_scale=100
+    border_style=getattr(card,'_export_border','classic') or 'classic'
+    texture_style=getattr(card,'_export_texture','none') or 'none'
+    bgc=tuple(int(bg.lstrip('#')[i:i+2],16) for i in (0,2,4)); inkc=tuple(int(ink.lstrip('#')[i:i+2],16) for i in (0,2,4)); acc=tuple(int(accent.lstrip('#')[i:i+2],16) for i in (0,2,4))
+    if custom_bg:
+        try: bgc=tuple(int(custom_bg.lstrip('#')[i:i+2],16) for i in (0,2,4))
+        except Exception: pass
+    if custom_text:
+        try: inkc=tuple(int(custom_text.lstrip('#')[i:i+2],16) for i in (0,2,4))
+        except Exception: pass
+    if design=='night': inkc,acc=(248,251,250),(121,225,211)
+    if background=='dark': bgc,inkc=(37,49,58),(248,251,250)
+    img=Image.new('RGB',(W,H),(245,245,239)); d=ImageDraw.Draw(img)
+    bg_overlays={
+        'gradient':((255,255,255),(210,245,235)),
+        'sunset':((255,210,150),(205,170,255)),
+        'ocean':((165,235,255),(105,150,220)),
+        'paper':((255,255,250),(235,240,230)),
+        'dark':((28,40,48),(15,24,30)),
+        'cream':((255,249,223),(245,237,206)),
+        'lavender':((241,233,255),(220,207,255)),
+        'mintwash':((234,255,247),(200,241,224))
+    }
+    if background in bg_overlays:
+        a,b=bg_overlays[background]
+        for yy in range(H):
+            t=yy/max(1,H-1); col=tuple(int(a[i]*(1-t)+b[i]*t) for i in range(3)); d.line((0,yy,W,yy),fill=col)
+    elif background=='grid':
+        d.rectangle((0,0,W,H),fill=(247,247,242))
+        for x in range(0,W,55): d.line((x,0,x,H),fill=(220,225,221),width=1)
+        for y2 in range(0,H,55): d.line((0,y2,W,y2),fill=(220,225,221),width=1)
+    elif background=='dots':
+        d.rectangle((0,0,W,H),fill=(247,249,245))
+        for yy in range(20,H,36):
+            for xx in range(20,W,36): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=(205,213,209))
+    elif background=='aurora':
+        d.rectangle((0,0,W,H),fill=(238,246,241))
+        d.ellipse((-240,-180,700,700),fill=(180,245,224))
+        d.ellipse((930,400,1800,1150),fill=(195,175,255))
+    # soft playful background to match the live card stage
+    if design in {'sunny','playful','pastel'}:
+        d.ellipse((-180,-140,500,500),fill=tuple(min(255,c+10) for c in bgc))
+        d.ellipse((1210,640,1820,1240),fill=tuple(min(255,c+14) for c in bgc))
+    elif design=='night': d.rectangle((0,0,W,H),fill=(23,35,43))
+    box=(150,100,1450,900)
+    shadow=(box[0]+18,box[1]+22,box[2]+18,box[3]+22)
+    d.rounded_rectangle(shadow,radius=44,fill=(54,62,62))
+    if shape=='rounded': d.rounded_rectangle(box,radius=90,fill=bgc,outline=inkc,width=7)
+    elif shape in {'circle','bubble'}:
+        d.ellipse(box,fill=bgc,outline=inkc,width=7)
+    elif shape in {'diagonal','slant','polygon','flag','ticketwide'}:
+        if shape=='diagonal': pts=[(180,100),(1420,140),(1450,860),(150,900)]
+        elif shape=='slant': pts=[(270,100),(1450,160),(1330,900),(150,840)]
+        elif shape=='flag': pts=[(150,100),(1450,100),(1330,500),(1450,900),(150,900),(270,500)]
+        elif shape=='polygon': pts=[(250,100),(1350,100),(1450,200),(1450,800),(1350,900),(250,900),(150,800),(150,200)]
+        else: pts=[(180,100),(1420,100),(1420,250),(1470,250),(1470,750),(1420,750),(1420,900),(180,900),(180,750),(130,750),(130,250),(180,250)]
+        d.polygon(pts,fill=bgc); d.line(pts+[pts[0]],fill=inkc,width=7,joint='curve')
+    elif shape=='wavy':
+        d.rounded_rectangle(box,radius=70,fill=bgc,outline=inkc,width=7)
+    elif shape=='stamp':
+        d.rounded_rectangle(box,radius=30,fill=bgc,outline=inkc,width=7)
+        for x in range(175,1430,55): d.ellipse((x-8,92,x+8,108),fill=inkc); d.ellipse((x-8,892,x+8,908),fill=inkc)
+    elif shape=='softbox':
+        d.rounded_rectangle(box,radius=55,fill=bgc,outline=inkc,width=7)
+    elif shape=='diary':
+        d.rounded_rectangle(box,radius=24,fill=bgc,outline=inkc,width=7); d.rectangle((150,100,205,900),fill=inkc)
+    elif shape=='pill': d.rounded_rectangle(box,radius=400,fill=bgc,outline=inkc,width=7)
+    elif shape=='ticket':
+        d.rounded_rectangle(box,radius=28,fill=bgc,outline=inkc,width=7)
+        for yy in range(170,850,78):
+            d.ellipse((139,yy-14,167,yy+14),fill=(245,245,239)); d.ellipse((1433,yy-14,1461,yy+14),fill=(245,245,239))
+    elif shape=='cloud':
+        pts=[(175,270),(240,175),(360,150),(470,205),(585,150),(700,165),(805,115),(965,150),(1070,205),(1200,145),(1360,220),(1435,315),(1408,735),(1285,845),(1120,875),(980,835),(815,900),(650,855),(500,895),(365,840),(235,865),(170,730)]
+        d.polygon(pts,fill=bgc); d.line(pts+[pts[0]],fill=inkc,width=7,joint='curve')
+    elif shape=='note':
+        d.rectangle(box,fill=bgc,outline=inkc,width=7)
+        for yy in range(220,820,72): d.line((215,yy,1385,yy),fill=tuple(min(255,c+18) for c in bgc),width=2)
+    elif shape=='arch':
+        d.rectangle((150,270,1450,900),fill=bgc,outline=inkc,width=7); d.ellipse((150,10,1450,510),fill=bgc,outline=inkc,width=7)
+    else:
+        d.rounded_rectangle(box,radius=26,fill=bgc,outline=inkc,width=7)
+    # Independent card background styling: keep Colour as the base tone while the
+    # Background choice adds its own visual treatment.  This is deliberately
+    # applied after the shape is drawn so the live editor and PNG have the same feel.
+    bg_tints={
+        'gradient':((255,255,255),.34),'sunset':((255,165,185),.48),'ocean':((100,195,235),.45),
+        'paper':((250,248,235),.42),'grid':((235,240,236),.46),'dots':((246,248,244),.36),
+        'aurora':((190,180,250),.42),'dark':((24,34,42),.72),'cream':((255,247,215),.42),
+        'lavender':((226,214,255),.42),'mintwash':((208,248,229),.42)
+    }
+    if background in bg_tints:
+        tint,alpha=bg_tints[background]
+        # Paint a soft transparent tint layer with the same shape footprint.
+        layer=Image.new('RGBA',(W,H),(0,0,0,0)); ld=ImageDraw.Draw(layer)
+        fill=tuple(tint)+(int(255*alpha),)
+        if shape in {'circle','bubble'}: ld.ellipse(box,fill=fill)
+        elif shape in {'diagonal','slant','polygon','flag','ticketwide','cloud'}:
+            ld.polygon(pts if 'pts' in locals() else [(box[0],box[1]),(box[2],box[1]),(box[2],box[3]),(box[0],box[3])],fill=fill)
+        elif shape=='pill': ld.rounded_rectangle(box,radius=400,fill=fill)
+        elif shape=='rounded': ld.rounded_rectangle(box,radius=90,fill=fill)
+        elif shape=='ticket': ld.rounded_rectangle(box,radius=28,fill=fill)
+        elif shape in {'stamp','softbox','wavy'}: ld.rounded_rectangle(box,radius=45,fill=fill)
+        elif shape=='arch': ld.rectangle((150,270,1450,900),fill=fill); ld.ellipse((150,10,1450,510),fill=fill)
+        elif shape=='diary': ld.rounded_rectangle(box,radius=24,fill=fill)
+        elif shape=='note': ld.rectangle(box,fill=fill)
+        else: ld.rounded_rectangle(box,radius=26,fill=fill)
+        img=Image.alpha_composite(img.convert('RGBA'),layer).convert('RGB'); d=ImageDraw.Draw(img)
+        if background=='grid':
+            for x in range(175,1430,55): d.line((x,120,x,880),fill=(20,33,30),width=1)
+            for yy in range(140,880,55): d.line((180,yy,1420,yy),fill=(20,33,30),width=1)
+        elif background=='dots':
+            for yy in range(145,875,42):
+                for xx in range(180,1425,42): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=(80,90,86))
+    if border_style == 'thin':
+        outline_w=3
+    elif border_style == 'dashed':
+        outline_w=2
+        for xx in range(box[0],box[2],35): d.line((xx,box[1],min(xx+18,box[2]),box[1]),fill=inkc,width=outline_w)
+        for xx in range(box[0],box[2],35): d.line((xx,box[3],min(xx+18,box[2]),box[3]),fill=inkc,width=outline_w)
+    elif border_style == 'double':
+        d.rounded_rectangle((box[0]+12,box[1]+12,box[2]-12,box[3]-12),radius=32,outline=inkc,width=3)
+    elif border_style == 'none':
+        pass
+    if texture_style == 'lines':
+        for yy in range(box[1]+30,box[3],34): d.line((box[0]+25,yy,box[2]-25,yy),fill=tuple(min(255,int(v*.88)) for v in bgc),width=1)
+    elif texture_style == 'soft-dots':
+        for yy in range(box[1]+30,box[3],38):
+            for xx in range(box[0]+30,box[2],38): d.ellipse((xx-2,yy-2,xx+2,yy+2),fill=tuple(min(255,int(v*.86)) for v in bgc))
+    elif texture_style == 'grid':
+        for xx in range(box[0]+20,box[2],50): d.line((xx,box[1]+15,xx,box[3]-15),fill=tuple(min(255,int(v*.9)) for v in bgc),width=1)
+        for yy in range(box[1]+20,box[3],50): d.line((box[0]+15,yy,box[2]-15,yy),fill=tuple(min(255,int(v*.9)) for v in bgc),width=1)
+
+    font_map={
+        'bold':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        'soft':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        'mono':'/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+        'hand':'/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf',
+        'serif':'/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf','display':'/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf','light':'/usr/share/fonts/truetype/dejavu/DejaVuSans-ExtraLight.ttf','wide':'/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf','typewriter':'/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf','comic':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','caps':'/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','elegant':'/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf'
+    }
+    def F(style,size):
+        p=font_map.get(style,font_map['bold'])
+        try:return ImageFont.truetype(p,size)
+        except OSError:return ImageFont.load_default()
+    align=text_align if text_align in {'left','center','right'} else ('center' if design in {'pastel','playful','night'} else 'left'); tx={'left':245,'center':800,'right':1355}[align]; anchor={'left':'la','center':'ma','right':'ra'}[align]
+    title=card['title'] or ''; body=card['body'] or ''
+    title_font=F(font_style,int(82*font_scale/100)); body_font=F('mono' if font_style=='mono' else 'soft',int(38*font_scale/100)); small=F('bold',24)
+    def wrap(text,font,maxw):
+        lines=[]; cur=''
+        for word in str(text).split():
+            test=(cur+' '+word).strip()
+            if d.textbbox((0,0),test,font=font)[2] <= maxw: cur=test
+            else:
+                if cur: lines.append(cur)
+                cur=word
+        if cur: lines.append(cur)
+        return lines
+    tlines=wrap(title,title_font,1080)[:3] if title else []
+    y=300
+    for line in tlines: d.text((tx,y),line,font=title_font,fill=inkc,anchor=anchor); y+=94
+    blines=wrap(body,body_font,1090)[:8] if body else []
+    y=(y+20 if tlines else 450)
+    for line in blines: d.text((tx,y),line,font=body_font,fill=inkc,anchor=anchor); y+=52
+    # tiny decorative mark
+    deco={'spark':'✦','sun':'☼','moon':'☾','heart':'♡','bird':'⌁','dots':'•••','none':'','verified':'✓','starblue':'★','checkblue':'✓','crownblue':'♛','diamond':'◆','bolt':'⚡','burst':'✹','seal':'●'}.get(decoration,'✦')
+    if deco:
+        df=F('bold',38); d.text((1280,160),deco,font=df,fill=acc,anchor='mm')
+    # QR is mandatory on every card export. Branding is optional.
+    try:
+        from .qr import make_qr_bytes
+        qr=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB').resize((80,80),Image.Resampling.NEAREST)
+        qx,qy=1360,790
+        d.rounded_rectangle((qx-8,qy-8,qx+88,qy+88),radius=10,fill=(255,255,255),outline=inkc,width=3); img.paste(qr,(qx,qy))
+    except Exception: pass
+    if include_branding:
+        d.line((245,820,1190,820),fill=inkc,width=2)
+        d.text((245,846),'✦',font=small,fill=acc); d.text((275,847),brand_name.upper(),font=small,fill=inkc)
+        d.text((1125,846),'✦',font=small,fill=acc)
+    return img
+
+@bp.get('/my-stuff/card/<int:card_id>/download')
+def my_stuff_card_download(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+    if not row: abort(404)
+    style=request.args.get('style','sunrise').strip().lower()
+    allowed={'sunrise','editorial','poster','minimal','playful','night','sunny','pastel','marker'}
+    if style not in allowed: style='sunny'
+    try: seed=int(request.args.get('seed','0'))
+    except ValueError: seed=0
+    include=(bool(row['signature_enabled']) if 'signature_enabled' in row.keys() else True)
+    if 'brand' in request.args and request.args.get('brand','1') in {'0','false','no'}: include=False
+    class CardProxy:
+        def __init__(self,r,style,seed):
+            self._r=r; self._export_style=style; self._export_seed=seed
+            self._export_font=r['font_style'] if 'font_style' in r.keys() else 'bold'
+            self._export_shape=r['shape_style'] if 'shape_style' in r.keys() else 'sticky'
+            self._export_design=r['design_style'] if 'design_style' in r.keys() else 'sunny'
+            self._export_background=r['background_style'] if 'background_style' in r.keys() else 'solid'
+            self._export_qr=bool(r['qr_enabled']) if 'qr_enabled' in r.keys() else True
+            self._export_signature=bool(r['signature_enabled']) if 'signature_enabled' in r.keys() else True
+            self._export_decoration=r['decoration'] if 'decoration' in r.keys() else 'spark'
+            self._export_custom_bg=r['custom_bg'] if 'custom_bg' in r.keys() else ''
+            self._export_custom_text=r['custom_text'] if 'custom_text' in r.keys() else ''
+            self._export_text_align=r['text_align'] if 'text_align' in r.keys() else 'left'
+            self._export_font_scale=r['font_scale'] if 'font_scale' in r.keys() else 100
+            self._export_border=r['border_style'] if 'border_style' in r.keys() else 'classic'
+            self._export_texture=r['texture_style'] if 'texture_style' in r.keys() else 'none'
+        def __getitem__(self,k): return self._r[k]
+    card=CardProxy(row,style,seed)
+    image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
+    out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
+    safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title']).strip('-')[:55] or 'quick-card'
+    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png',max_age=0)
+
+@bp.post('/my-stuff/card/<int:card_id>/delete')
+def my_stuff_card_delete(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    if row and row['image_filename']:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['image_filename']))
+        except OSError: pass
+    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff_cards'))
+
+@bp.get('/my-stuff/copy-paste')
+def my_stuff_copy_paste():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_copy_uses')
+    db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? AND id IN (SELECT MAX(id) FROM saved_copies WHERE user_id=? GROUP BY label,value) ORDER BY updated_at DESC,id DESC',(user['id'],user['id'])).fetchall()
+    edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
+    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_copy_uses'] or 0))
+
+@bp.post('/my-stuff/copy/save')
+def my_stuff_copy_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); item_id=request.form.get('item_id','').strip(); label=request.form.get('label','').strip()[:80]; value=request.form.get('value','').strip(); note=request.form.get('note','').strip()[:240]
+    if not label or not value: flash('Add a name and the number or code you want to keep.','error'); return redirect(url_for('public.my_stuff_copy_paste'))
+    if item_id:
+        db.execute('UPDATE saved_copies SET label=?,value=?,note=?,updated_at=? WHERE id=? AND user_id=?',(label,value,note,now(),item_id,user['id'])); msg='Saved item updated.'
+    else:
+        existing=db.execute('SELECT id FROM saved_copies WHERE user_id=? AND label=? AND value=? ORDER BY id DESC LIMIT 1',(user['id'],label,value)).fetchone()
+        if existing:
+            db.execute('UPDATE saved_copies SET note=?,updated_at=? WHERE id=? AND user_id=?',(note,now(),existing['id'],user['id'])); msg='Already saved — updated.'
+        else:
+            db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now())); msg='Saved to Copy & Paste.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_copy_paste'))
+
+@bp.post('/my-stuff/copy/<int:item_id>/delete')
+def my_stuff_copy_delete(item_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit(); flash('Saved item deleted.','success'); return redirect(url_for('public.my_stuff_copy_paste'))
+
+@bp.get('/my-stuff/color-cards')
+def my_stuff_color_cards():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_card_uses')
+    use_count=int(user['stuff_card_uses'] or 0)
+    has_id=_stuff_id_ready(user)
+    if not has_id and use_count > 5:
+        _cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+        import base64 as _b64
+        qr_b64=_b64.b64encode(make_qr_bytes(url_for('public.home', _external=True))).decode('ascii')
+        return render_template('my_color_cards.html',user=user,cards=_cards,card_locked=True,card_use_count=use_count,qr_b64=qr_b64)
+    cards=get_db().execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    import base64 as _b64
+    qr_b64=_b64.b64encode(make_qr_bytes(url_for('public.home', _external=True))).decode('ascii')
+    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=use_count,qr_b64=qr_b64)
+
+@bp.post('/my-stuff/color-card/save')
+def my_stuff_color_card_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user):
+        return jsonify(ok=False,message='Create your Open Road ID to keep using Color Cards.'),403
+    db=get_db()
+    card_id=request.form.get('card_id','').strip()
+    title=request.form.get('title','').strip()[:100]
+    body=request.form.get('body','').strip()[:1000]
+    color=request.form.get('color','yellow').strip().lower()
+    font_style=request.form.get('font_style','bold').strip().lower()
+    shape_style=request.form.get('shape_style','sticky').strip().lower()
+    design_style=request.form.get('design_style','sunny').strip().lower()
+    background_style=request.form.get('background_style','solid').strip().lower()
+    decoration=request.form.get('decoration','spark').strip().lower()
+    custom_bg=request.form.get('custom_bg','').strip()[:20]
+    custom_text=request.form.get('custom_text','').strip()[:20]
+    text_align=request.form.get('text_align','left').strip().lower()
+    try: font_scale=max(75,min(140,int(request.form.get('font_scale','100'))))
+    except (TypeError,ValueError): font_scale=100
+    border_style=request.form.get('border_style','classic').strip().lower()
+    texture_style=request.form.get('texture_style','none').strip().lower()
+    signature_enabled=1 if request.form.get('signature_enabled') in {'1','on','yes','true'} else 0
+    allowed_colors={'yellow','blue','pink','aqua','lime','orange','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}
+    allowed_fonts={'bold','soft','mono','hand','serif','display','light','wide','typewriter','comic','caps','elegant'}
+    allowed_shapes={'sticky','rounded','ticket','cloud','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}
+    allowed_designs={'sunny','pastel','marker','minimal','night','playful'}
+    allowed_backgrounds={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}
+    allowed_decos={'spark','sun','moon','heart','bird','dots','none','verified','starblue','checkblue','crownblue','diamond','bolt','burst','seal'}
+    allowed_align={'left','center','right'}
+    allowed_border={'classic','thin','dashed','double','none'}
+    allowed_texture={'none','soft-dots','lines','grid','paper'}
+    if color not in allowed_colors: color='yellow'
+    if font_style not in allowed_fonts: font_style='bold'
+    if shape_style not in allowed_shapes: shape_style='sticky'
+    if design_style not in allowed_designs: design_style='sunny'
+    if background_style not in allowed_backgrounds: background_style='solid'
+    if decoration not in allowed_decos: decoration='spark'
+    if text_align not in allowed_align: text_align='left'
+    if border_style not in allowed_border: border_style='classic'
+    if texture_style not in allowed_texture: texture_style='none'
+    import re as _re
+    def clean_hex(v, default=''):
+        return v if _re.fullmatch(r'#?[0-9a-fA-F]{6}',v or '') else default
+    custom_bg=clean_hex(custom_bg,'')
+    custom_text=clean_hex(custom_text,'')
+    if not title and not body: return jsonify(ok=False,message='Write a topic or body first.'),400
+    cols=['title','body','color','font_style','shape_style','design_style','background_style','qr_enabled','signature_enabled','decoration','custom_bg','custom_text','text_align','font_scale','border_style','texture_style','created_at','updated_at']
+    timestamp=now()
+    vals=[title,body,color,font_style,shape_style,design_style,background_style,1,signature_enabled,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,timestamp,timestamp]
+    if card_id:
+        owned=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+        if not owned: return jsonify(ok=False,message='That card was not found.'),404
+        sets=', '.join(f'{c}=?' for c in cols)
+        db.execute(f'UPDATE stuff_cards SET {sets} WHERE id=? AND user_id=?',tuple(vals+[card_id,user['id']]))
+        saved_id=int(card_id); msg='Color Card updated.'
+    else:
+        placeholders=','.join('?'*len(vals))
+        cur=db.execute(f'INSERT INTO stuff_cards(user_id,{",".join(cols)}) VALUES(?,{placeholders})',tuple([user['id']]+vals))
+        saved_id=int(cur.lastrowid); msg='Color Card saved.'
+    db.commit()
+    download_url=url_for('public.my_stuff_card_download',card_id=saved_id,style=design_style,seed=saved_id,brand=('1' if signature_enabled else '0'))
+    return jsonify(ok=True,saved_id=saved_id,message=msg,download_url=download_url)
+
+@bp.post('/my-stuff/color-card/<int:card_id>/delete')
+def my_stuff_color_card_delete(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    return redirect(url_for('public.my_stuff_color_cards'))
+
+@bp.get('/my-stuff/edits-studio')
+def my_stuff_edits_studio():
+    # Legacy URL retained so old bookmarks do not break; the old editor is no longer exposed.
+    return redirect(url_for('public.my_stuff_color_cards'))
+
+@bp.post('/my-stuff/image')
+def my_stuff_image_upload():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    f=request.files.get('image'); operation=request.form.get('operation','clean')
+    if not f or not f.filename: flash('Choose an image first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
+    if operation not in {'clean','grayscale','web'}: operation='clean'
+    new_id=None
+    try:
+        from PIL import Image, ImageOps
+        raw=f.read(); from io import BytesIO
+        source=Image.open(BytesIO(raw)); source.verify(); source=Image.open(BytesIO(raw)).convert('RGB'); source=ImageOps.exif_transpose(source)
+        if operation=='grayscale': source=ImageOps.grayscale(source).convert('RGB')
+        elif operation=='web': source.thumbnail((1600,1600), Image.Resampling.LANCZOS)
+        out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id'])); os.makedirs(stuff_dir,exist_ok=True); out_path=os.path.join(stuff_dir,out_name); source.save(out_path,'JPEG',quality=91,optimize=True)
+        logical=os.path.join('stuff',str(user['id']),out_name); db=get_db(); db.execute('INSERT INTO stuff_images(user_id,original_name,filename,operation,created_at) VALUES(?,?,?,?,?)',(user['id'],f.filename,logical,operation,now())); db.commit(); flash('Image processed. Metadata has been removed from the new file.','success')
+    except Exception: flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
+    return redirect(url_for('public.my_stuff_edits_studio', image=int(new_id)) if new_id else url_for('public.my_stuff_edits_studio'))
+
+@bp.get('/my-stuff/image/<int:image_id>')
+def my_stuff_image(image_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    row=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
+    if not row: abort(404)
+    path=os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']); return send_file(path,as_attachment=True,download_name='open-road-'+os.path.basename(path),mimetype='image/jpeg')
+
+@bp.post('/my-stuff/image/<int:image_id>/delete')
+def my_stuff_image_delete(image_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); row=db.execute('SELECT filename FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])); db.commit()
+    if row:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']))
+        except OSError: pass
+    flash('Image history item deleted.','success'); return redirect(url_for('public.my_stuff_edits_studio'))
+
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)
 
@@ -825,6 +1618,20 @@ def join():
     qr=make_qr_bytes(target)
     return render_template('join.html', target=target, qr=qr)
 
+@bp.get('/sw.js')
+def service_worker():
+    resp = send_from_directory(current_app.static_folder, 'sw.js', mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
 @bp.get('/manifest.json')
 def manifest():
-    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',scope='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',orientation='portrait-primary',categories=['travel','lifestyle','utilities'],icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+
+@bp.get('/offline')
+def offline_app():
+    return render_template('offline_app.html')
+
+@bp.get('/offline/my-stuff')
+def offline_my_stuff():
+    return render_template('offline_my_stuff.html')
