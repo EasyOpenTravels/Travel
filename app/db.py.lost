@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT NOT NULL,
  email TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, recovery_question TEXT NOT NULL,
  recovery_answer_hash TEXT NOT NULL, remember_token TEXT, remember_until TEXT,
- deleted_at TEXT, simple_id_hash TEXT, is_stuff_guest INTEGER NOT NULL DEFAULT 0, journal_card_uses INTEGER NOT NULL DEFAULT 0, stuff_journal_uses INTEGER NOT NULL DEFAULT 0, stuff_copy_uses INTEGER NOT NULL DEFAULT 0, stuff_edits_uses INTEGER NOT NULL DEFAULT 0, stuff_card_uses INTEGER NOT NULL DEFAULT 0, journal_secret_hash TEXT, created_at TEXT NOT NULL
+ deleted_at TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trips (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
@@ -64,211 +64,6 @@ CREATE TABLE IF NOT EXISTS service_requests (
  budget TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL,
  FOREIGN KEY(service_id) REFERENCES services(id), FOREIGN KEY(user_id) REFERENCES users(id)
 );
-
-CREATE TABLE IF NOT EXISTS event_ticket_events (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- owner_user_id INTEGER NOT NULL,
- slug TEXT UNIQUE NOT NULL,
- title TEXT NOT NULL,
- description TEXT DEFAULT '',
- event_date TEXT DEFAULT '',
- event_time TEXT DEFAULT '',
- venue TEXT DEFAULT '',
- price INTEGER NOT NULL DEFAULT 0,
- currency TEXT NOT NULL DEFAULT 'KES',
- payment_instructions TEXT DEFAULT '',
- cover_image TEXT DEFAULT '',
- ticket_note TEXT DEFAULT '',
- ticket_style TEXT NOT NULL DEFAULT 'tiers',
- visibility TEXT NOT NULL DEFAULT 'public',
- regular_price INTEGER NOT NULL DEFAULT 0,
- vip_price INTEGER NOT NULL DEFAULT 0,
- vvip_price INTEGER NOT NULL DEFAULT 0,
- scanner_code TEXT UNIQUE NOT NULL,
- scanners_pin_hash TEXT NOT NULL,
- active INTEGER NOT NULL DEFAULT 1,
- created_at TEXT NOT NULL,
- FOREIGN KEY(owner_user_id) REFERENCES users(id)
-);
-CREATE TABLE IF NOT EXISTS event_joint_tickets (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- event_id INTEGER NOT NULL,
- joint_code TEXT UNIQUE NOT NULL,
- signature TEXT NOT NULL,
- tier TEXT NOT NULL,
- ticket_codes TEXT NOT NULL,
- status TEXT NOT NULL DEFAULT 'valid',
- used_at TEXT,
- created_at TEXT NOT NULL,
- FOREIGN KEY(event_id) REFERENCES event_ticket_events(id)
-);
-CREATE TABLE IF NOT EXISTS group_retreats (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- group_code TEXT UNIQUE NOT NULL,
- leader_pin_hash TEXT NOT NULL,
- leader_user_id INTEGER,
- leader_name TEXT NOT NULL,
- leader_phone TEXT NOT NULL,
- leader_email TEXT DEFAULT '',
- title TEXT NOT NULL,
- group_type TEXT NOT NULL DEFAULT 'Group',
- destination TEXT NOT NULL,
- activities TEXT NOT NULL,
- preferred_date TEXT DEFAULT '',
- people_count INTEGER NOT NULL,
- suggested_price INTEGER NOT NULL DEFAULT 0,
- agreed_price INTEGER NOT NULL DEFAULT 0,
- notes TEXT DEFAULT '',
- admin_message TEXT DEFAULT '',
- status TEXT NOT NULL DEFAULT 'pending',
- active INTEGER NOT NULL DEFAULT 1,
- approved_at TEXT,
- completed_at TEXT,
- created_at TEXT NOT NULL,
- FOREIGN KEY(leader_user_id) REFERENCES users(id)
-);
-CREATE TABLE IF NOT EXISTS group_members (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- retreat_id INTEGER NOT NULL,
- name TEXT NOT NULL,
- gender TEXT NOT NULL DEFAULT '',
- phone TEXT DEFAULT '',
- email TEXT DEFAULT '',
- amount_paid INTEGER NOT NULL DEFAULT 0,
- payment_reference TEXT DEFAULT '',
- payment_status TEXT NOT NULL DEFAULT 'pending',
- pass_type TEXT NOT NULL DEFAULT 'individual',
- pass_code TEXT UNIQUE NOT NULL,
- signature TEXT NOT NULL,
- checked_in_at TEXT,
- created_at TEXT NOT NULL,
- FOREIGN KEY(retreat_id) REFERENCES group_retreats(id)
-);
-CREATE TABLE IF NOT EXISTS event_tickets (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- event_id INTEGER NOT NULL,
- attendee_user_id INTEGER,
- attendee_name TEXT NOT NULL,
- attendee_gender TEXT NOT NULL DEFAULT '',
- attendee_phone TEXT DEFAULT '',
- attendee_email TEXT DEFAULT '',
- ticket_code TEXT UNIQUE NOT NULL,
- signature TEXT NOT NULL,
- payment_method TEXT NOT NULL DEFAULT 'M-Pesa',
- payment_reference TEXT DEFAULT '',
- amount INTEGER NOT NULL DEFAULT 0,
- ticket_tier TEXT NOT NULL DEFAULT 'regular',
- source TEXT NOT NULL DEFAULT 'visitor',
- access_token TEXT UNIQUE,
- payment_status TEXT NOT NULL DEFAULT 'submitted',
- approval_status TEXT NOT NULL DEFAULT 'pending',
- approval_method TEXT NOT NULL DEFAULT 'manual',
- ticket_status TEXT NOT NULL DEFAULT 'valid',
- design TEXT NOT NULL DEFAULT 'classic',
- checked_in_by TEXT DEFAULT '',
- checked_in_at TEXT,
- approved_at TEXT,
- created_at TEXT NOT NULL,
- FOREIGN KEY(event_id) REFERENCES event_ticket_events(id),
- FOREIGN KEY(attendee_user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS payment_intents (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- reference TEXT UNIQUE NOT NULL,
- kind TEXT NOT NULL,
- target_id INTEGER NOT NULL,
- event_id INTEGER,
- phone TEXT NOT NULL,
- amount INTEGER NOT NULL,
- currency TEXT NOT NULL DEFAULT 'KES',
- provider TEXT NOT NULL DEFAULT 'mpesa',
- status TEXT NOT NULL DEFAULT 'created',
- fee_percent REAL NOT NULL DEFAULT 0,
- platform_fee INTEGER NOT NULL DEFAULT 0,
- net_amount INTEGER NOT NULL DEFAULT 0,
- merchant_request_id TEXT DEFAULT '',
- checkout_request_id TEXT DEFAULT '',
- provider_transaction_id TEXT DEFAULT '',
- result_code TEXT DEFAULT '',
- result_desc TEXT DEFAULT '',
- provider_response_json TEXT DEFAULT '',
- metadata_json TEXT DEFAULT '',
- paid_at TEXT,
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS stuff_folders (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- name TEXT NOT NULL,
- color TEXT NOT NULL DEFAULT 'lime',
- created_at TEXT NOT NULL,
- UNIQUE(user_id, name),
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS stuff_cards (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- folder_id INTEGER,
- title TEXT NOT NULL,
- body TEXT NOT NULL DEFAULT '',
- color TEXT NOT NULL DEFAULT 'lime',
- image_filename TEXT DEFAULT '',
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- font_style TEXT NOT NULL DEFAULT 'bold',
- shape_style TEXT NOT NULL DEFAULT 'sticky',
- design_style TEXT NOT NULL DEFAULT 'sunny',
- qr_enabled INTEGER NOT NULL DEFAULT 1,
- signature_enabled INTEGER NOT NULL DEFAULT 0,
- background_style TEXT NOT NULL DEFAULT 'solid',
- custom_bg TEXT DEFAULT '',
- custom_text TEXT DEFAULT '',
- text_align TEXT NOT NULL DEFAULT 'left',
- font_scale INTEGER NOT NULL DEFAULT 100,
- border_style TEXT NOT NULL DEFAULT 'classic',
- texture_style TEXT NOT NULL DEFAULT 'none',
- accent_color TEXT DEFAULT '',
- decoration TEXT NOT NULL DEFAULT 'spark',
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
- FOREIGN KEY(folder_id) REFERENCES stuff_folders(id) ON DELETE SET NULL
-);
-CREATE TABLE IF NOT EXISTS saved_copies (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- label TEXT NOT NULL,
- value TEXT NOT NULL,
- note TEXT DEFAULT '',
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS stuff_images (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- original_name TEXT NOT NULL,
- filename TEXT NOT NULL,
- operation TEXT NOT NULL DEFAULT 'clean',
- created_at TEXT NOT NULL,
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS journal_entries (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- title TEXT NOT NULL,
- body TEXT NOT NULL DEFAULT '',
- mood TEXT NOT NULL DEFAULT 'thoughts',
- tags TEXT DEFAULT '',
- cover_color TEXT NOT NULL DEFAULT 'cream',
- segments_json TEXT DEFAULT '',
- favorite INTEGER NOT NULL DEFAULT 0,
- archived INTEGER NOT NULL DEFAULT 0,
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 '''
 
 def get_db():
@@ -298,15 +93,6 @@ def init_db(app):
                 'remember_token': 'ALTER TABLE users ADD COLUMN remember_token TEXT',
                 'remember_until': 'ALTER TABLE users ADD COLUMN remember_until TEXT',
                 'deleted_at': 'ALTER TABLE users ADD COLUMN deleted_at TEXT',
-                'stuff_id_hash': 'ALTER TABLE users ADD COLUMN stuff_id_hash TEXT',
-                'simple_id_hash': 'ALTER TABLE users ADD COLUMN simple_id_hash TEXT',
-                'is_stuff_guest': 'ALTER TABLE users ADD COLUMN is_stuff_guest INTEGER NOT NULL DEFAULT 0',
-                'journal_card_uses': 'ALTER TABLE users ADD COLUMN journal_card_uses INTEGER NOT NULL DEFAULT 0',
-                'stuff_journal_uses': 'ALTER TABLE users ADD COLUMN stuff_journal_uses INTEGER NOT NULL DEFAULT 0',
-                'stuff_copy_uses': 'ALTER TABLE users ADD COLUMN stuff_copy_uses INTEGER NOT NULL DEFAULT 0',
-                'stuff_edits_uses': 'ALTER TABLE users ADD COLUMN stuff_edits_uses INTEGER NOT NULL DEFAULT 0',
-                'stuff_card_uses': 'ALTER TABLE users ADD COLUMN stuff_card_uses INTEGER NOT NULL DEFAULT 0',
-                'journal_secret_hash': 'ALTER TABLE users ADD COLUMN journal_secret_hash TEXT',
             },
             'bookings': {
                 'payment_method': "ALTER TABLE bookings ADD COLUMN payment_method TEXT DEFAULT ''",
@@ -315,68 +101,12 @@ def init_db(app):
                 'followup_sent': 'ALTER TABLE bookings ADD COLUMN followup_sent INTEGER NOT NULL DEFAULT 0',
             },
             'trips': {'gallery': "ALTER TABLE trips ADD COLUMN gallery TEXT DEFAULT ''"},
-            'event_ticket_events': {
-                'ticket_style': "ALTER TABLE event_ticket_events ADD COLUMN ticket_style TEXT NOT NULL DEFAULT 'tiers'",
-                'visibility': "ALTER TABLE event_ticket_events ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'",
-                'regular_price': 'ALTER TABLE event_ticket_events ADD COLUMN regular_price INTEGER NOT NULL DEFAULT 0',
-                'vip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vip_price INTEGER NOT NULL DEFAULT 0',
-                'vvip_price': 'ALTER TABLE event_ticket_events ADD COLUMN vvip_price INTEGER NOT NULL DEFAULT 0',
-                'scanner_code': 'ALTER TABLE event_ticket_events ADD COLUMN scanner_code TEXT',
-            },
-            'event_tickets': {
-                'attendee_gender': "ALTER TABLE event_tickets ADD COLUMN attendee_gender TEXT NOT NULL DEFAULT ''",
-                'attendee_phone': "ALTER TABLE event_tickets ADD COLUMN attendee_phone TEXT DEFAULT ''",
-                'attendee_email': "ALTER TABLE event_tickets ADD COLUMN attendee_email TEXT DEFAULT ''",
-                'ticket_tier': "ALTER TABLE event_tickets ADD COLUMN ticket_tier TEXT NOT NULL DEFAULT 'regular'",
-                'source': "ALTER TABLE event_tickets ADD COLUMN source TEXT NOT NULL DEFAULT 'visitor'",
-                'access_token': 'ALTER TABLE event_tickets ADD COLUMN access_token TEXT',
-                'approval_method': "ALTER TABLE event_tickets ADD COLUMN approval_method TEXT NOT NULL DEFAULT 'manual'",
-                'checked_in_by': "ALTER TABLE event_tickets ADD COLUMN checked_in_by TEXT DEFAULT ''",
-            },
-            'group_retreats': {
-                'admin_message': "ALTER TABLE group_retreats ADD COLUMN admin_message TEXT DEFAULT ''",
-            },
-            'group_members': {
-                'phone': "ALTER TABLE group_members ADD COLUMN phone TEXT DEFAULT ''",
-                'email': "ALTER TABLE group_members ADD COLUMN email TEXT DEFAULT ''",
-            },
-            'stuff_cards': {
-                'font_style': "ALTER TABLE stuff_cards ADD COLUMN font_style TEXT NOT NULL DEFAULT 'bold'",
-                'shape_style': "ALTER TABLE stuff_cards ADD COLUMN shape_style TEXT NOT NULL DEFAULT 'sticky'",
-                'design_style': "ALTER TABLE stuff_cards ADD COLUMN design_style TEXT NOT NULL DEFAULT 'sunny'",
-                'qr_enabled': "ALTER TABLE stuff_cards ADD COLUMN qr_enabled INTEGER NOT NULL DEFAULT 1",
-                'signature_enabled': "ALTER TABLE stuff_cards ADD COLUMN signature_enabled INTEGER NOT NULL DEFAULT 0",
-                'background_style': "ALTER TABLE stuff_cards ADD COLUMN background_style TEXT NOT NULL DEFAULT 'solid'",
-                'custom_bg': "ALTER TABLE stuff_cards ADD COLUMN custom_bg TEXT DEFAULT ''",
-                'custom_text': "ALTER TABLE stuff_cards ADD COLUMN custom_text TEXT DEFAULT ''",
-                'text_align': "ALTER TABLE stuff_cards ADD COLUMN text_align TEXT NOT NULL DEFAULT 'left'",
-                'font_scale': "ALTER TABLE stuff_cards ADD COLUMN font_scale INTEGER NOT NULL DEFAULT 100",
-                'border_style': "ALTER TABLE stuff_cards ADD COLUMN border_style TEXT NOT NULL DEFAULT 'classic'",
-                'texture_style': "ALTER TABLE stuff_cards ADD COLUMN texture_style TEXT NOT NULL DEFAULT 'none'",
-                'accent_color': "ALTER TABLE stuff_cards ADD COLUMN accent_color TEXT DEFAULT ''",
-                'decoration': "ALTER TABLE stuff_cards ADD COLUMN decoration TEXT NOT NULL DEFAULT 'spark'",
-            },
         }
         for table, cols in upgrades.items():
             existing = _column_names(db, table)
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
-
-        if 'segments_json' not in _column_names(db, 'journal_entries'):
-            db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
-
-        import secrets
-        # Backfill scanner/access identifiers on databases created by earlier builds.
-        if 'scanner_code' in _column_names(db, 'event_ticket_events'):
-            rows = db.execute("SELECT id FROM event_ticket_events WHERE scanner_code IS NULL OR scanner_code=''").fetchall()
-            for r in rows:
-                db.execute('UPDATE event_ticket_events SET scanner_code=? WHERE id=?', ('SCN-' + secrets.token_hex(4).upper(), r['id']))
-        if 'access_token' in _column_names(db, 'event_tickets'):
-            rows = db.execute("SELECT id FROM event_tickets WHERE access_token IS NULL OR access_token=''").fetchall()
-            for r in rows:
-                db.execute('UPDATE event_tickets SET access_token=? WHERE id=?', (secrets.token_urlsafe(24), r['id']))
-        # Event and group retention is manual. The administrator controls archival/removal.
 
         defaults = {
             'promo_counter': '3401',
@@ -388,11 +118,6 @@ def init_db(app):
             'contact_phone': '',
             'contact_email': '',
             'ticket_secret': None,
-            'payment_business_shortcode': '',
-            'payment_transaction_type': 'CustomerBuyGoodsOnline',
-            'payment_currency': 'KES',
-            'ticketing_fee_percent': '5',
-            'event_mpesa_listener_token': '',
         }
         for key, value in defaults.items():
             exists = db.execute('SELECT 1 FROM settings WHERE key=?', (key,)).fetchone()

@@ -1,15 +1,1 @@
-{% extends 'base.html' %}{% block content %}
-<section class="stuff-door-v3" aria-label="My Stuff">
-  <div class="stuff-door-v3-inner">
-    <a href="{{ url_for('public.home') }}" class="stuff-door-v3-menu">Back to menu</a>
-    <div class="stuff-door-v3-mini">A LITTLE SPACE OF YOUR OWN</div>
-    <h1>My Stuff</h1>
-    <p class="stuff-door-v3-sub">Pick something fun to do.</p>
-    <div class="stuff-door-v3-buttons">
-      <a href="{{ url_for('public.my_stuff_journal') }}" class="stuff-tool-btn journal"><span>01</span><strong>Stories</strong><small>memories & moods</small></a>
-      <a href="{{ url_for('public.my_stuff_copy_paste') }}" class="stuff-tool-btn saves"><span>02</span><strong>Reference</strong><small>numbers, codes & useful things</small></a>
-      <a href="{{ url_for('public.my_stuff_color_cards') }}" class="stuff-tool-btn colorcards"><span>03</span><strong>My Color Cards</strong><small>design · play · keep</small></a>
-    </div>
-  </div>
-</section>
-{% endblock %}{% block scripts %}<script>document.body.classList.add('stuff-door-body-v3');</script>{% endblock %}
+{% extends 'base.html' %}{% block content %}<section class="stuff-door-v3" aria-label="My Stuff"><div class="stuff-door-v3-inner"><a href="{{ url_for('public.home') }}" class="stuff-door-v3-menu">Back to menu</a><div class="stuff-door-v3-mini">A LITTLE SPACE OF YOUR OWN</div><h1>My Stuff</h1><p class="stuff-door-v3-sub">Three simple things worth keeping.</p><div class="stuff-tool-grid"><a href="{{ url_for('public.my_stuff_journal') }}" class="stuff-tool-btn journal"><span>01</span><strong>My Story</strong><small>journals, memories & moods</small></a><a href="{{ url_for('public.my_stuff_cards') }}" class="stuff-tool-btn colorcards"><span>02</span><strong>My Cards</strong><small>make · surprise · save · share</small></a><a href="{{ url_for('public.my_stuff_copy_paste') }}" class="stuff-tool-btn saves"><span>03</span><strong>My Saves</strong><small>names, numbers, codes & references</small></a></div></div></section>{% endblock %}{% block scripts %}<script>document.body.classList.add('stuff-door-body-v3');</script>{% endblock %}

@@ -23,3 +23,26 @@ def ticket_signature(code):
 def verify_ticket(code, sig):
     expected = ticket_signature(code)
     return bool(sig) and hmac.compare_digest(expected, sig)
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    raw = str(current_app.config.get('SECRET_KEY','')).encode('utf-8')
+    import base64, hashlib
+    key = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+    return Fernet(key)
+
+def encrypt_secret(value):
+    value = str(value or '')
+    if not value:
+        return ''
+    return _fernet().encrypt(value.encode('utf-8')).decode('utf-8')
+
+def decrypt_secret(value):
+    value = str(value or '')
+    if not value:
+        return ''
+    try:
+        return _fernet().decrypt(value.encode('utf-8')).decode('utf-8')
+    except Exception:
+        return ''

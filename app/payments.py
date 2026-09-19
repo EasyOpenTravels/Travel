@@ -113,7 +113,7 @@ def _stk_push(phone, amount, reference, description):
         'BusinessShortCode': shortcode,
         'Password': password,
         'Timestamp': ts,
-        'TransactionType': os.environ.get('MPESA_TRANSACTION_TYPE', 'CustomerBuyGoodsOnline'),
+        'TransactionType': _setting('payment_transaction_type', os.environ.get('MPESA_TRANSACTION_TYPE', 'CustomerBuyGoodsOnline')),
         'Amount': int(amount),
         'PartyA': phone,
         'PartyB': till,

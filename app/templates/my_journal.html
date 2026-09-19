@@ -5,8 +5,8 @@
 <div class="journal-v4">
   <header class="journal-v4-top">
     <a class="journal-v4-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
-    <div class="journal-v4-title"><span>YOUR PRIVATE SPACE</span><h1>Stories</h1></div>
-    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button>
+    <div class="journal-v4-title"><span>YOUR PRIVATE SPACE</span><h1>My Story</h1></div>
+    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">My Story</button>
   </header>
   <aside class="journal-v4-drawer">
     <div class="journal-v4-drawer-head"><strong>Your stories</strong><button type="button" onclick="document.body.classList.remove('journal-v4-open')">×</button></div>
@@ -55,7 +55,7 @@
       <div class="journal-v4-read-head"><div><span>{{ entry.mood|title }}</span><h2>{{ entry.title }}</h2></div><a class="journal-v4-edit" href="{{ url_for('public.my_stuff_journal',entry=entry.id,edit=1) }}">Edit</a></div>
       <article class="journal-v4-book"><div id="journalReadV4"></div></article>
       <div class="journal-v4-turn"><button id="jrPrevV4">‹</button><span id="jrCountV4">1 / 1</span><button id="jrNextV4">›</button></div>
-      <div class="journal-v4-read-tools"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button>{{ '★' if entry.favorite else '☆' }}</button></form><button type="button" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button>Archive</button></form></div>
+      <div class="journal-v4-read-tools"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button>{{ '★' if entry.favorite else '☆' }}</button></form><button type="button" onclick="document.body.classList.toggle('journal-v4-open')">My Story</button><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button>Archive</button></form></div>
     </section>
   {% endif %}
   </main>

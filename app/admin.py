@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
 from .db import get_db,SCHEMA
-from .security import now
+from .security import now, encrypt_secret, verify_pin, hash_pin
 from .qr import make_qr_bytes
 import io
 
@@ -50,10 +50,15 @@ def dashboard():
         'tickets':db.execute('SELECT COUNT(*) n FROM tickets').fetchone()['n'],
         'visitors':db.execute("SELECT COUNT(DISTINCT visitor_key) n FROM visits WHERE created_at>=datetime('now','-1 day')").fetchone()['n'],
         'messages':db.execute("SELECT COUNT(*) n FROM messages WHERE status='unread'").fetchone()['n'],
+        'event_tickets':db.execute('SELECT COUNT(*) n FROM event_tickets').fetchone()['n'],
+        'event_pending':db.execute("SELECT COUNT(*) n FROM event_tickets WHERE approval_status='pending'").fetchone()['n'],
+        'groups':db.execute('SELECT COUNT(*) n FROM group_retreats WHERE active=1').fetchone()['n'],
+        'group_pending':db.execute("SELECT COUNT(*) n FROM group_retreats WHERE status='pending' AND active=1").fetchone()['n'],
+        'payment_intents':db.execute('SELECT COUNT(*) n FROM payment_intents').fetchone()['n'],
     }
     rows={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
     trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall(); services=db.execute('SELECT * FROM services ORDER BY sort_order,id').fetchall(); service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC LIMIT 12').fetchall()
-    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests)
+    return render_template('admin_dashboard.html',stats=stats,settings=rows,trips=trips,destinations=destinations,posts=posts,services=services,service_requests=service_requests, events=db.execute('SELECT * FROM event_ticket_events ORDER BY id DESC LIMIT 12').fetchall(), groups=db.execute('SELECT * FROM group_retreats WHERE active=1 ORDER BY id DESC LIMIT 12').fetchall())
 
 @admin_bp.route('/trips/new',methods=['GET','POST'])
 @admin_bp.route('/trips/<int:trip_id>/edit',methods=['GET','POST'])
@@ -140,7 +145,7 @@ def settings():
     g=guard()
     if g:return g
     db=get_db()
-    allowed=['promo_counter','promo_growth_daily','payment_paybill','payment_till','payment_name','contact_phone','contact_email','site_tagline']
+    allowed=['promo_counter','promo_growth_daily','payment_paybill','payment_till','payment_name','contact_phone','contact_email','site_tagline','payment_business_shortcode','payment_transaction_type','payment_currency','ticketing_fee_percent','event_mpesa_listener_token']
     for key in allowed:
         value=request.form.get(key,'').strip()
         if key in ('promo_counter','promo_growth_daily'):
@@ -234,3 +239,129 @@ def restore():
         try:os.remove(temp)
         except OSError:pass
     return redirect(url_for('admin.dashboard'))
+
+
+@admin_bp.get('/events')
+def events():
+    gate=guard()
+    if gate:return gate
+    db=get_db()
+    rows=db.execute("""SELECT e.*,u.name owner_name,
+      COUNT(t.id) ticket_count,
+      SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count,
+      SUM(CASE WHEN t.approval_status='approved' THEN 1 ELSE 0 END) approved_count,
+      SUM(CASE WHEN t.ticket_status='used' THEN 1 ELSE 0 END) used_count
+      FROM event_ticket_events e JOIN users u ON u.id=e.owner_user_id
+      LEFT JOIN event_tickets t ON t.event_id=e.id GROUP BY e.id ORDER BY e.id DESC""").fetchall()
+    return render_template('admin_event_ticketing.html',events=rows)
+
+@admin_bp.post('/events/<int:event_id>/status')
+def event_status(event_id):
+    gate=guard()
+    if gate:return gate
+    status=request.form.get('status','active')
+    active=1 if status in {'active','open'} else 0
+    db=get_db(); db.execute('UPDATE event_ticket_events SET active=? WHERE id=?',(active,event_id)); db.commit()
+    flash('Event status updated.','success')
+    return redirect(url_for('admin.events'))
+
+@admin_bp.post('/events/<int:event_id>/ticket/<int:ticket_id>')
+def event_ticket_action(event_id,ticket_id):
+    gate=guard()
+    if gate:return gate
+    action=request.form.get('action','').strip().lower(); db=get_db()
+    row=db.execute('SELECT * FROM event_tickets WHERE id=? AND event_id=?',(ticket_id,event_id)).fetchone()
+    if not row: abort(404)
+    if action=='approve':
+        event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+        tier=row['ticket_tier'] if row['ticket_tier'] in {'regular','vip','vvip'} else 'regular'
+        expected=int(event['regular_price'] or event['price'] or 0) if (event['ticket_style'] or 'tiers')=='single' else int(event[f'{tier}_price'] or 0)
+        if int(row['amount'])!=expected or expected<=0:
+            flash('This ticket cannot be approved because its amount does not exactly match the configured ticket price.','error')
+        else:
+            db.execute("UPDATE event_tickets SET approval_status='approved',payment_status='verified',approval_method='admin',approved_at=? WHERE id=?",(now(),ticket_id)); db.commit(); flash('Ticket approved.','success')
+    elif action in {'reject','void'}:
+        db.execute("UPDATE event_tickets SET approval_status='rejected',payment_status='rejected',ticket_status='void' WHERE id=?",(ticket_id,)); db.commit(); flash('Ticket rejected/voided.','success')
+    return redirect(url_for('admin.events'))
+
+@admin_bp.get('/groups')
+def groups():
+    gate=guard()
+    if gate:return gate
+    db=get_db(); rows=db.execute("""SELECT g.*,COUNT(m.id) member_count,
+      SUM(CASE WHEN m.payment_status='approved' THEN 1 ELSE 0 END) paid_count
+      FROM group_retreats g LEFT JOIN group_members m ON m.retreat_id=g.id
+      GROUP BY g.id ORDER BY g.id DESC""").fetchall()
+    return render_template('admin_group_retreats.html',groups=rows)
+
+@admin_bp.post('/groups/<int:group_id>/status')
+def group_status(group_id):
+    gate=guard()
+    if gate:return gate
+    status=request.form.get('status','pending')
+    allowed={'pending','approved','active','complete','closed'}
+    if status not in allowed: abort(400)
+    db=get_db(); db.execute('UPDATE group_retreats SET status=?,approved_at=? WHERE id=?',(status,now() if status in {'approved','active'} else None,group_id)); db.commit(); flash('Group plan status updated.','success'); return redirect(url_for('admin.groups'))
+
+@admin_bp.post('/groups/<int:group_id>/member/<int:member_id>/payment')
+def group_member_payment(group_id,member_id):
+    gate=guard()
+    if gate:return gate
+    status=request.form.get('status','pending');
+    if status not in {'pending','approved','rejected'}: abort(400)
+    db=get_db(); db.execute('UPDATE group_members SET payment_status=? WHERE id=? AND retreat_id=?',(status,member_id,group_id)); db.commit(); flash('Group member payment updated.','success'); return redirect(url_for('admin.groups'))
+
+@admin_bp.post('/groups/<int:group_id>/message')
+def group_message(group_id):
+    gate=guard()
+    if gate:return gate
+    message=request.form.get('admin_message','').strip()[:1500]
+    db=get_db(); db.execute('UPDATE group_retreats SET admin_message=? WHERE id=?',(message,group_id)); db.commit(); flash('Reply saved for the group leader.','success'); return redirect(url_for('admin.groups'))
+
+@admin_bp.post('/groups/<int:group_id>/delete')
+def group_delete(group_id):
+    gate=guard()
+    if gate:return gate
+    db=get_db(); db.execute('UPDATE group_retreats SET active=0,status=\'closed\' WHERE id=?',(group_id,)); db.commit(); flash('Group archived.','success'); return redirect(url_for('admin.groups'))
+
+@admin_bp.get('/payments')
+def payments():
+    gate=guard()
+    if gate:return gate
+    rows=get_db().execute('SELECT * FROM payment_intents ORDER BY id DESC LIMIT 200').fetchall()
+    return render_template('admin_payments.html',payments=rows)
+
+@admin_bp.route('/payment-settings',methods=['GET','POST'])
+def payment_settings():
+    gate=guard()
+    if gate:return gate
+    db=get_db()
+    from .payments import mpesa_configured, payment_callback_url, _secret
+    if request.method=='POST':
+        section=request.form.get('section','collection')
+        if section=='credentials':
+            for key in ('mpesa_consumer_key','mpesa_consumer_secret','mpesa_passkey','mpesa_callback_token'):
+                value=request.form.get(key,'').strip()
+                if value:
+                    db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,encrypt_secret(value)))
+            db.commit(); flash('Daraja credentials saved securely.','success')
+        elif section=='collection':
+            for key in ('payment_till','payment_paybill','payment_business_shortcode','payment_transaction_type','payment_name','payment_currency'):
+                db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,request.form.get(key,'').strip()))
+            try: fee=min(100,max(0,float(request.form.get('ticketing_fee_percent','5') or 5)))
+            except ValueError: fee=5
+            db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',('ticketing_fee_percent',str(fee)))
+            db.commit(); flash('Payment collection settings saved.','success')
+        elif section=='change_password':
+            # The main admin login password is environment-backed in this build.
+            flash('Admin login credentials are managed by the deployment environment. Payment secrets can be changed here without exposing them.','success')
+        elif section=='delete_configuration':
+            # Keep historical payment records; remove only provider credentials/configuration.
+            for key in ('mpesa_consumer_key','mpesa_consumer_secret','mpesa_passkey','mpesa_callback_token','payment_till','payment_paybill','payment_business_shortcode'):
+                db.execute('DELETE FROM settings WHERE key=?',(key,))
+            db.commit(); flash('Payment provider configuration removed. Historical payment records remain.','success')
+        return redirect(url_for('admin.payment_settings'))
+    settings={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
+    secret_state={k:bool(_secret(k)) for k in ('mpesa_consumer_key','mpesa_consumer_secret','mpesa_passkey','mpesa_callback_token')}
+    ready=mpesa_configured()
+    return render_template('admin_payment_settings.html',settings=settings,secret_state=secret_state,mpesa_ready=ready,callback_url=payment_callback_url())

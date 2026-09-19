@@ -1,6 +1,8 @@
-import re, secrets, sqlite3
+from io import BytesIO
+from pathlib import Path
+import re, secrets, sqlite3, os, hmac, json
 from datetime import datetime, timezone
-from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory
+from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file
 from .db import get_db
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
 from .qr import make_qr_bytes
@@ -25,24 +27,10 @@ def promo_value():
     return base + days*growth
 
 def log_visit():
-    # Keep visitor analytics useful: PWA/static plumbing should not become a
-    # separate "visit" every time a browser refreshes or comes back online.
-    ignored_paths = (
-        '/static/', '/media/', '/api/', '/sw.js', '/manifest.json',
-        '/favicon.ico', '/robots.txt', '/offline', '/offline/',
-        '/offline/my-stuff', '/telemetry', '/pulse_receiver'
-    )
-    if request.path.startswith(ignored_paths) or request.endpoint in {'health', 'pulse_receiver'}:
+    if request.path.startswith('/static/') or request.path.startswith('/media/') or request.path.startswith('/api/'):
         return
-
-    # Once someone is signed in, keep their activity tied to their registered
-    # account instead of creating a new anonymous visitor identity.
-    user_id = session.get('user_id')
-    key = f'user:{user_id}' if user_id else (request.cookies.get('visitor_key') or secrets.token_urlsafe(16))
-    db=get_db()
-    db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(key,request.path,now()))
-    db.commit()
-    request._visitor_key=key
+    key=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
+    db=get_db(); db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(key,request.path,now())); db.commit(); request._visitor_key=key
 
 @bp.before_request
 def before(): log_visit()
@@ -174,6 +162,1240 @@ def scan_ticket(code):
     if cur.rowcount != 1: return render_template('scan_result.html',valid=False,reason='This ticket was just redeemed elsewhere.',ticket=row)
     return render_template('scan_result.html',valid=True,ticket=row)
 
+
+# ---------------------------------------------------------------------------
+# GROUP RETREATS
+# A lightweight group-planning workflow, independent of ordinary travel bookings.
+def _new_group_code(db):
+    while True:
+        code='GRP-' + secrets.token_hex(3).upper()
+        if not db.execute('SELECT 1 FROM group_retreats WHERE group_code=?',(code,)).fetchone():
+            return code
+
+def _new_group_pass_code(db):
+    while True:
+        code='GTP-' + secrets.token_hex(6).upper()
+        if not db.execute('SELECT 1 FROM group_members WHERE pass_code=?',(code,)).fetchone():
+            return code
+
+def _group_row(code):
+    return get_db().execute('SELECT * FROM group_retreats WHERE group_code=? AND active=1',(code.upper().strip(),)).fetchone()
+
+def _group_pass_signature(code):
+    return ticket_signature(code)
+
+@bp.route('/group-retreats', methods=['GET','POST'])
+def group_retreats():
+    db=get_db()
+    if request.method=='POST':
+        leader_name=request.form.get('leader_name','').strip()
+        leader_phone=request.form.get('leader_phone','').strip()
+        leader_email=request.form.get('leader_email','').strip().lower()
+        title=request.form.get('title','').strip()
+        group_type=request.form.get('group_type','Group').strip() or 'Group'
+        destination=request.form.get('destination','').strip()
+        activities=request.form.get('activities','').strip()
+        preferred_date=request.form.get('preferred_date','').strip()
+        people=max(0,int(request.form.get('people_count','0') or 0))
+        try: suggested=max(0,int(request.form.get('suggested_price','0') or 0))
+        except ValueError: suggested=0
+        notes=request.form.get('notes','').strip()
+        pin=request.form.get('leader_pin','').strip()
+        if not leader_name or not leader_phone or not title or not destination or not activities or people<5:
+            flash('Give the useful details and plan for at least 5 people.','error'); return render_template('group_retreats.html')
+        if not pin.isdigit() or not 4<=len(pin)<=8:
+            flash('Choose a 4–8 digit Group Leader PIN.','error'); return render_template('group_retreats.html')
+        code=_new_group_code(db)
+        db.execute("INSERT INTO group_retreats(group_code,leader_pin_hash,leader_user_id,leader_name,leader_phone,leader_email,title,group_type,destination,activities,preferred_date,people_count,suggested_price,notes,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (code,hash_pin(pin),session.get('user_id'),leader_name,leader_phone,leader_email,title,group_type,destination,activities,preferred_date,people,suggested,notes,'pending',now()))
+        db.commit(); flash('Group plan created. Save the Group ID and Leader PIN.','success'); return redirect(url_for('public.group_manage',code=code))
+    return render_template('group_retreats.html')
+
+@bp.get('/group-retreats/group/<code>')
+def group_public(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    return render_template('group_public.html',group=group)
+
+@bp.post('/group-retreats/group/<code>/join')
+def group_join(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); phone=request.form.get('phone','').strip(); email=request.form.get('email','').strip().lower()
+    if not name or gender not in {'male','female'}:
+        flash('Enter the member name and choose male or female.','error'); return redirect(url_for('public.group_public',code=code))
+    try:
+        phone_n=_normalise_event_phone(phone)
+    except ValueError:
+        flash('Enter the M-Pesa phone number for this member, e.g. 0712345678.','error'); return redirect(url_for('public.group_public',code=code))
+    if group['status'] not in {'approved','active'}:
+        flash('This group plan is not approved for members yet.','error'); return redirect(url_for('public.group_public',code=code))
+    db=get_db(); pc=_new_group_pass_code(db)
+    sig=_group_pass_signature(pc)
+    amount_raw=request.form.get('amount','0').strip(); reference=request.form.get('payment_reference','').strip()
+    try: amount=max(0,int(amount_raw or 0))
+    except ValueError: amount=0
+    db.execute("INSERT INTO group_members(retreat_id,name,gender,phone,email,amount_paid,payment_reference,payment_status,pass_type,pass_code,signature,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+               (group['id'],name,gender,phone_n,email,amount,reference,'submitted' if amount and reference else 'pending','individual',pc,sig,now()))
+    db.commit(); flash('You joined the group list. Payment still needs approval before your pass unlocks.','success'); return redirect(url_for('public.group_public',code=code))
+
+@bp.route('/group-retreats/manage/<code>',methods=['GET','POST'])
+def group_manage(code):
+    group=_group_row(code)
+    if not group: abort(404)
+    authenticated=session.get('group_leader_code')==group['group_code'] or (session.get('user_id') and session.get('user_id')==group['leader_user_id'])
+    if request.method=='POST' and request.form.get('action')=='unlock':
+        if verify_pin(group['leader_pin_hash'],request.form.get('leader_pin','').strip()):
+            session['group_leader_code']=group['group_code']; authenticated=True
+        else: flash('That Group Leader PIN is not correct.','error')
+    if not authenticated: return render_template('group_unlock.html',group=group)
+    db=get_db(); members=db.execute('SELECT * FROM group_members WHERE retreat_id=? ORDER BY id',(group['id'],)).fetchall()
+    counts={
+        'members':len(members),
+        'paid':sum(1 for m in members if m['payment_status']=='approved'),
+        'submitted':sum(1 for m in members if m['payment_status']=='submitted')
+    }
+    return render_template('group_manage.html',group=group,members=members,counts=counts)
+
+@bp.post('/group-retreats/manage/<code>/member')
+def group_add_member(code):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    if group['status'] not in {'approved','active'}:
+        flash('The group plan must be approved before members are added.','error'); return redirect(url_for('public.group_manage',code=code))
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); phone=request.form.get('phone','').strip(); email=request.form.get('email','').strip().lower()
+    phone_n=''
+    if phone:
+        try: phone_n=_normalise_event_phone(phone)
+        except ValueError: flash('Use a valid Kenyan M-Pesa phone number when adding a member.','error'); return redirect(url_for('public.group_manage',code=code))
+    try: amount=max(0,int(request.form.get('amount','0') or 0))
+    except ValueError: amount=0
+    reference=request.form.get('payment_reference','').strip()
+    if not name or gender not in {'male','female'}:
+        flash('Enter the member name and gender.','error'); return redirect(url_for('public.group_manage',code=code))
+    db=get_db(); pc=_new_group_pass_code(db)
+    db.execute("INSERT INTO group_members(retreat_id,name,gender,phone,email,amount_paid,payment_reference,payment_status,pass_type,pass_code,signature,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+               (group['id'],name,gender,phone_n,email,amount,reference,'submitted' if amount and reference else 'pending','individual',pc,_group_pass_signature(pc),now()))
+    db.commit(); flash('Member added. Payment can now be approved.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.post('/group-retreats/manage/<code>/edit')
+def group_edit(code):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    try: people=max(5,int(request.form.get('people_count','5') or 5)); suggested=max(0,int(request.form.get('suggested_price','0') or 0))
+    except ValueError: people=5; suggested=0
+    db=get_db(); db.execute("UPDATE group_retreats SET title=?,group_type=?,destination=?,activities=?,preferred_date=?,people_count=?,suggested_price=?,notes=? WHERE id=?",
+        (request.form.get('title','').strip(),request.form.get('group_type','Group').strip() or 'Group',request.form.get('destination','').strip(),request.form.get('activities','').strip(),request.form.get('preferred_date','').strip(),people,suggested,request.form.get('notes','').strip(),group['id']))
+    db.commit(); flash('Group plan updated.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.get('/group-retreats/pass/<pass_code>/download')
+def group_pass_download(pass_code):
+    db=get_db(); row=db.execute("SELECT m.*,g.title,g.destination,g.preferred_date,g.group_code FROM group_members m JOIN group_retreats g ON g.id=m.retreat_id WHERE m.pass_code=? AND g.active=1",(pass_code,)).fetchone()
+    if not row: abort(404)
+    if row['payment_status']!='approved': flash('This pass is not approved yet.','error'); return redirect(url_for('public.group_public',code=row['group_code']))
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+    import io
+    buf=io.BytesIO(); c=canvas.Canvas(buf,pagesize=A4); w,h=A4
+    c.setFillColorRGB(.07,.13,.17); c.rect(0,h-150,w,150,fill=1,stroke=0); c.setFillColorRGB(1,1,1); c.setFont('Helvetica-Bold',22); c.drawString(40,h-58,'GROUP PASS'); c.setFont('Helvetica-Bold',10); c.drawString(40,h-82,row['group_code'])
+    c.setFillColorRGB(.08,.08,.08); c.setFont('Helvetica-Bold',25); c.drawString(40,h-205,row['name']); c.setFont('Helvetica',12); c.drawString(40,h-232,f"{row['title']} · {row['destination']}"); c.drawString(40,h-252,row['preferred_date'] or 'Date to be confirmed')
+    qr=make_qr_bytes(url_for('public.group_pass_verify',pass_code=row['pass_code'],sig=row['signature'],_external=True)); c.drawImage(ImageReader(io.BytesIO(qr)),w-210,h-400,width=150,height=150,mask='auto'); c.setFont('Helvetica-Bold',10); c.drawString(40,h-320,'APPROVED GROUP MEMBER'); c.setFont('Helvetica',10); c.drawString(40,h-340,'Present this pass for the group activity.'); c.showPage(); c.save(); buf.seek(0)
+    return send_file(buf,as_attachment=True,download_name=f"{row['group_code']}-{row['name'].replace(' ','-')}.pdf",mimetype='application/pdf')
+
+@bp.get('/group-retreats/pass/<pass_code>')
+def group_pass_verify(pass_code):
+    sig=request.args.get('sig',''); db=get_db(); row=db.execute("SELECT m.*,g.title,g.destination,g.preferred_date,g.group_code FROM group_members m JOIN group_retreats g ON g.id=m.retreat_id WHERE m.pass_code=? AND g.active=1",(pass_code,)).fetchone()
+    if not row or not hmac.compare_digest(row['signature'],sig): return render_template('group_scan_result.html',valid=False,member=row,reason='Invalid group pass.')
+    if row['payment_status']!='approved': return render_template('group_scan_result.html',valid=False,member=row,reason='Payment is not approved yet.')
+    if row['checked_in_at']: return render_template('group_scan_result.html',valid=False,member=row,reason='This group pass has already been checked.')
+    db.execute('UPDATE group_members SET checked_in_at=? WHERE id=? AND checked_in_at IS NULL',(now(),row['id'])); db.commit(); return render_template('group_scan_result.html',valid=True,member=row)
+
+@bp.post('/group-retreats/manage/<code>/member/<int:member_id>/approve')
+def group_member_approve(code,member_id):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    db=get_db(); row=db.execute('SELECT id FROM group_members WHERE id=? AND retreat_id=?',(member_id,group['id'])).fetchone()
+    if not row: abort(404)
+    db.execute("UPDATE group_members SET payment_status='approved' WHERE id=? AND retreat_id=? AND payment_status IN ('pending','submitted')",(member_id,group['id'])); db.commit(); flash('Member payment approved; their pass is ready.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.post('/group-retreats/manage/<code>/member/<int:member_id>/reject')
+def group_member_reject(code,member_id):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    db=get_db(); row=db.execute('SELECT id FROM group_members WHERE id=? AND retreat_id=?',(member_id,group['id'])).fetchone()
+    if not row: abort(404)
+    db.execute("UPDATE group_members SET payment_status='rejected' WHERE id=? AND retreat_id=? AND payment_status!='approved'",(member_id,group['id'])); db.commit(); flash('Member payment returned for review.','success'); return redirect(url_for('public.group_manage',code=code))
+
+@bp.get('/group-retreats/manage/<code>/receipt.pdf')
+def group_receipt_download(code):
+    group=_group_row(code)
+    if not group or session.get('group_leader_code')!=group['group_code']: abort(403)
+    db=get_db(); members=db.execute('SELECT * FROM group_members WHERE retreat_id=? ORDER BY id',(group['id'],)).fetchall()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4); y=H-55
+    c.setFillColorRGB(.07,.13,.17); c.rect(0,H-105,W,105,fill=1,stroke=0); c.setFillColorRGB(1,1,1); c.setFont('Helvetica-Bold',19); c.drawString(38,H-50,'GROUP RETREAT ROSTER'); c.setFont('Helvetica-Bold',9); c.drawString(38,H-70,group['group_code'])
+    c.setFillColorRGB(.08,.08,.08); y=H-135; c.setFont('Helvetica-Bold',14); c.drawString(38,y,group['title'][:58]); y-=22; c.setFont('Helvetica',9); c.drawString(38,y,f"{group['destination']} · {group['preferred_date'] or 'Date TBA'}"); y-=28
+    for i,m in enumerate(members,1):
+        if y<60: c.showPage(); y=H-55
+        c.setFont('Helvetica-Bold',9); c.drawString(42,y,f"{i}. {m['name'][:38]}"); c.setFont('Helvetica',8); c.drawString(305,y,f"{m['payment_status']} · KES {int(m['amount_paid'] or 0):,}"); y-=15
+    c.setFont('Helvetica',7); c.drawString(38,35,'Generated by Open Road Adventures.'); c.showPage(); c.save(); buf.seek(0)
+    return send_file(buf,as_attachment=True,download_name=f"{group['group_code']}-roster.pdf",mimetype='application/pdf')
+
+# ---------------------------------------------------------------------------
+# EVENT TICKETING
+# Deliberately separate from ordinary Travel Tickets.
+def event_ticket_owner(event):
+    return bool(session.get('user_id')) and session.get('user_id') == event['owner_user_id']
+
+def event_ticket_signature(code):
+    return ticket_signature(code)
+
+def event_public_slug(db, title, exclude_event_id=None):
+    base = slugify(title)
+    return base + '-' + secrets.token_hex(3)
+
+def event_image_upload():
+    f = request.files.get('cover_image')
+    if not f or not f.filename:
+        return ''
+    from werkzeug.utils import secure_filename
+    fn = secure_filename(f.filename)
+    ext = fn.rsplit('.', 1)[-1].lower() if '.' in fn else ''
+    if ext not in {'jpg','jpeg','png','webp','gif'}:
+        return ''
+    fn = f"event-{secrets.token_hex(5)}.{ext}"
+    os.makedirs(current_app.config['UPLOAD_FOLDER'], exist_ok=True)
+    f.save(os.path.join(current_app.config['UPLOAD_FOLDER'], fn))
+    return '/media/' + fn
+
+def _normalise_event_phone(value):
+    digits=re.sub(r'\D+', '', str(value or ''))
+    if digits.startswith('0') and len(digits)==10:
+        digits='254'+digits[1:]
+    elif digits.startswith('7') and len(digits)==9:
+        digits='254'+digits
+    if not re.fullmatch(r'2547\d{8}', digits):
+        raise ValueError('Enter a valid Kenyan M-Pesa number.')
+    return digits
+
+def _event_price(event, tier='regular'):
+    style=(event['ticket_style'] or 'tiers').lower() if 'ticket_style' in event.keys() else 'tiers'
+    if style=='single':
+        return int(event['regular_price'] or event['price'] or 0)
+    prices={'regular':int(event['regular_price'] or 0),'vip':int(event['vip_price'] or 0),'vvip':int(event['vvip_price'] or 0)}
+    return prices.get((tier or 'regular').lower(),0)
+
+def _event_price_tiers(event):
+    if ('ticket_style' in event.keys()) and (event['ticket_style'] or 'tiers').lower()=='single':
+        return [('regular', _event_price(event,'regular'))]
+    return [(x,_event_price(event,x)) for x in ('regular','vip','vvip') if _event_price(event,x)>0]
+
+def _tier_for_amount(event, amount, requested='auto'):
+    """Resolve the ticket class from the event prices.
+
+    Manual choices always win. In auto mode, an exact configured price wins;
+    otherwise the amount falls into the highest configured tier it reaches.
+    This makes 2,000 reliably map to VIP when, for example, Regular=1,000,
+    VIP=2,000 and VVIP=5,000.
+    """
+    mapping = [
+        ('regular', int(event['regular_price'] or 0)),
+        ('vip', int(event['vip_price'] or 0)),
+        ('vvip', int(event['vvip_price'] or 0)),
+    ]
+    requested=(requested or 'auto').lower()
+    if requested in {'regular','vip','vvip'}:
+        return requested
+    amount=max(0, int(amount or 0))
+    # Prefer an exact configured price, including when prices are entered out of order.
+    for tier, price in mapping:
+        if price > 0 and amount == price:
+            return tier
+    # Otherwise classify by the highest configured tier whose entry price is reached.
+    reached=[(price,tier) for tier,price in mapping if price > 0 and amount >= price]
+    if reached:
+        reached.sort(key=lambda item:item[0])
+        return reached[-1][1]
+    return 'regular'
+
+def _new_ticket_code():
+    return 'EVT-' + secrets.token_hex(7).upper()
+
+def _make_event_ticket(db, event, *, name, gender, phone='', email='', amount=0, mpesa_code='', tier='auto', source='visitor'):
+    code=_new_ticket_code(); signature=event_ticket_signature(code); access=secrets.token_urlsafe(28)
+    style=(event['ticket_style'] or 'tiers').lower()
+    if style=='single':
+        chosen='regular'; expected=_event_price(event,'regular')
+    elif tier in {'regular','vip','vvip'}:
+        chosen=tier; expected=_event_price(event,tier)
+    else:
+        chosen=_tier_for_amount(event, amount, 'auto'); expected=_event_price(event,chosen)
+    amount=int(expected if source=='visitor' else amount)
+    status='approved' if source=='host' else 'pending'; payment_status='verified' if source=='host' else 'submitted'
+    db.execute(
+        """INSERT INTO event_tickets
+        (event_id,attendee_user_id,attendee_name,attendee_gender,attendee_phone,attendee_email,ticket_code,signature,payment_method,payment_reference,amount,ticket_tier,source,access_token,payment_status,approval_status,ticket_status,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (event['id'],session.get('user_id') if source=='visitor' and session.get('user_id') else None,name,gender,phone,email,code,signature,'M-Pesa',mpesa_code,amount,chosen,source,access,payment_status,status,'valid',now())
+    )
+    return code,access
+
+def _event_ticket_row_by_access(access_token):
+    return get_db().execute(
+        """SELECT t.*,e.title event_title,e.slug event_slug,e.event_date,e.event_time,e.venue,e.cover_image,e.ticket_note,e.owner_user_id,
+                  e.currency,e.regular_price,e.vip_price,e.vvip_price,e.active
+           FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id
+           WHERE t.access_token=?""", (access_token,)
+    ).fetchone()
+
+def _event_qr_url(row):
+    return url_for('public.event_scan', ticket_code=row['ticket_code'], sig=row['signature'], _external=True)
+
+@bp.get('/ticketing')
+def ticketing_home():
+    db=get_db(); my_events=[]
+    if session.get('user_id'):
+        my_events=db.execute(
+            """SELECT e.*,COUNT(t.id) ticket_count,
+                      SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count,
+                      SUM(CASE WHEN t.approval_status='approved' AND t.ticket_status='valid' THEN 1 ELSE 0 END) active_count,
+                      SUM(CASE WHEN t.ticket_status='used' THEN 1 ELSE 0 END) used_count
+               FROM event_ticket_events e LEFT JOIN event_tickets t ON t.event_id=e.id
+               WHERE e.owner_user_id=? AND e.active=1 GROUP BY e.id ORDER BY e.id DESC""",(session['user_id'],)
+        ).fetchall()
+    return render_template('ticketing_home.html',my_events=my_events)
+
+@bp.route('/ticketing/host',methods=['GET','POST'])
+def ticketing_host():
+    if not session.get('user_id'):
+        session['next_url']=url_for('public.ticketing_host')
+        return redirect(url_for('public.register',next=url_for('public.ticketing_host')))
+    if request.method=='POST':
+        title=request.form.get('title','').strip()
+        if not title:
+            flash('Give your event a name first.','error'); return render_template('ticketing_host.html')
+        style=request.form.get('ticket_style','tiers').strip().lower()
+        if style not in {'single','tiers'}: style='tiers'
+        try:
+            regular=max(0,int(request.form.get('regular_price','0') or 0)); vip=max(0,int(request.form.get('vip_price','0') or 0)); vvip=max(0,int(request.form.get('vvip_price','0') or 0))
+        except ValueError: regular=vip=vvip=0
+        if style=='single':
+            vip=vvip=0
+            if regular<=0:
+                flash('Enter the single ticket price.','error'); return render_template('ticketing_host.html')
+        elif regular<=0 and vip<=0 and vvip<=0:
+            flash('Set at least one ticket price.','error'); return render_template('ticketing_host.html')
+        pin=request.form.get('scanners_pin','').strip()
+        if not pin.isdigit() or not 4<=len(pin)<=8:
+            flash('Scanner PIN must be 4–8 digits.','error'); return render_template('ticketing_host.html')
+        visibility=request.form.get('visibility','public').strip().lower()
+        if visibility not in {'public','unlisted'}: visibility='public'
+        db=get_db(); cover=event_image_upload(); slug=event_public_slug(db,title); scanner_code='SCN-'+secrets.token_hex(4).upper()
+        cur=db.execute(
+            """INSERT INTO event_ticket_events
+            (owner_user_id,slug,title,description,event_date,event_time,venue,price,currency,payment_instructions,cover_image,ticket_note,ticket_style,visibility,regular_price,vip_price,vvip_price,scanner_code,scanners_pin_hash,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (session['user_id'],slug,title,request.form.get('description','').strip(),request.form.get('event_date','').strip(),request.form.get('event_time','').strip(),request.form.get('venue','').strip(),regular,request.form.get('currency','KES').strip().upper()[:6] or 'KES',request.form.get('payment_instructions','').strip(),cover,request.form.get('ticket_note','').strip(),style,visibility,regular,vip,vvip,scanner_code,hash_pin(pin),now())
+        ); db.commit()
+        flash('Event created. Your owner desk is ready.','success')
+        return redirect(url_for('public.event_manage',event_id=cur.lastrowid))
+    return render_template('ticketing_host.html')
+
+@bp.post('/ticketing/event/<int:event_id>/joint-ticket')
+def event_joint_ticket(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    raw=request.form.getlist('ticket_ids')
+    ids=[]
+    for x in raw:
+        try: ids.append(int(x))
+        except ValueError: pass
+    ids=list(dict.fromkeys(ids))
+    if len(ids)<2:
+        flash('Select at least two approved VIP or VVIP tickets.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    q=','.join('?'*len(ids)); rows=db.execute(f"SELECT * FROM event_tickets WHERE event_id=? AND id IN ({q}) AND approval_status='approved' AND ticket_status='valid'", [event_id,*ids]).fetchall()
+    if len(rows)!=len(ids):
+        flash('Only approved, unused tickets can be joined.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    tiers={r['ticket_tier'].lower() for r in rows}
+    if tiers not in ({'vip'},{'vvip'}):
+        flash('Joint tickets are for VIP or VVIP members of the same tier.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    joint_code='JNT-'+secrets.token_hex(7).upper(); sig=ticket_signature(joint_code)
+    db.execute('INSERT INTO event_joint_tickets(event_id,joint_code,signature,tier,ticket_codes,created_at) VALUES(?,?,?,?,?,?)',(event_id,joint_code,sig,next(iter(tiers)),','.join(r['ticket_code'] for r in rows),now())); db.commit()
+    flash('Joint ticket created. Download the single pass for this VIP/VVIP group.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.get('/ticketing/joint/<joint_code>/download')
+def event_joint_download(joint_code):
+    db=get_db(); j=db.execute('SELECT j.*,e.title event_title,e.event_date,e.event_time,e.venue,e.currency FROM event_joint_tickets j JOIN event_ticket_events e ON e.id=j.event_id WHERE j.joint_code=? AND e.active=1',(joint_code,)).fetchone()
+    if not j: abort(404)
+    codes=[c for c in j['ticket_codes'].split(',') if c]
+    if not codes: abort(404)
+    q=','.join('?'*len(codes)); rows=db.execute(f'SELECT * FROM event_tickets WHERE event_id=? AND ticket_code IN ({q}) ORDER BY id',[j['event_id'],*codes]).fetchall()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from io import BytesIO
+    buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4)
+    c.setFillColorRGB(.07,.13,.17); c.rect(0,H-150,W,150,fill=1,stroke=0); c.setFillColorRGB(1,1,1); c.setFont('Helvetica-Bold',22); c.drawString(40,H-58,'JOINT EVENT TICKET'); c.setFont('Helvetica-Bold',10); c.drawString(40,H-82,j['joint_code'])
+    c.setFillColorRGB(.08,.08,.08); c.setFont('Helvetica-Bold',24); c.drawString(40,H-205,j['event_title'][:36]); c.setFont('Helvetica',11); c.drawString(40,H-228,f"{j['event_date'] or 'TBA'} {j['event_time'] or ''}".strip()); c.drawString(40,H-246,j['venue'] or 'Venue TBA'); c.setFont('Helvetica-Bold',15); c.drawString(40,H-285,j['tier'].upper())
+    y=H-325; c.setFont('Helvetica-Bold',10); c.drawString(40,y,'NAMES ON THIS PASS'); y-=20; c.setFont('Helvetica',10)
+    for idx,r in enumerate(rows,1): c.drawString(45,y,f'{idx}. {r["attendee_name"]}'); y-=17
+    qr=make_qr_bytes(url_for('public.event_joint_verify',joint_code=j['joint_code'],sig=j['signature'],_external=True)); c.drawImage(ImageReader(BytesIO(qr)),W-215,H-440,width=150,height=150,mask='auto'); c.setFont('Helvetica-Bold',9); c.drawString(40,55,'ONE JOINT QR · SERVER VERIFIED · ALL NAMES ENTER TOGETHER'); c.showPage(); c.save(); buf.seek(0)
+    safe=re.sub(r'[^A-Za-z0-9_-]','-',j['event_title']); return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=f'{safe}-{j["joint_code"]}.pdf')
+
+@bp.get('/ticketing/joint/<joint_code>')
+def event_joint_verify(joint_code):
+    sig=request.args.get('sig',''); db=get_db()
+    db.execute('BEGIN IMMEDIATE')
+    j=db.execute('SELECT j.*,e.title event_title,e.event_date,e.event_time,e.venue FROM event_joint_tickets j JOIN event_ticket_events e ON e.id=j.event_id WHERE j.joint_code=? AND e.active=1',(joint_code,)).fetchone()
+    if not j or not hmac.compare_digest(j['signature'],sig): db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket is not valid.')
+    if j['status']!='valid': db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket has already been approved at the entrance.')
+    codes=[c for c in j['ticket_codes'].split(',') if c]; q=','.join('?'*len(codes)); rows=db.execute(f'SELECT * FROM event_tickets WHERE event_id=? AND ticket_code IN ({q})',[j['event_id'],*codes]).fetchall()
+    if len(rows)!=len(codes) or any(r['ticket_status']!='valid' for r in rows): db.rollback(); return render_template('event_scan_result.html',valid=False,reason='One or more tickets in this joint pass are no longer valid.')
+    cur=db.execute("UPDATE event_joint_tickets SET status='used',used_at=? WHERE id=? AND status='valid'",(now(),j['id']))
+    if cur.rowcount!=1: db.rollback(); return render_template('event_scan_result.html',valid=False,reason='This joint ticket was just approved at another scanner.')
+    stamp=now()
+    for r in rows: db.execute("UPDATE event_tickets SET ticket_status='used',checked_in_at=?,checked_in_by=? WHERE id=? AND ticket_status='valid'",(stamp,r['id']))
+    db.commit(); return render_template('event_scan_result.html',valid=True,ticket={'attendee_name':'Joint '+j['tier'].upper(),'ticket_tier':j['tier'],'event_title':j['event_title'],'event_date':j['event_date'],'venue':j['venue']})
+
+@bp.get('/ticketing/event/<slug>')
+def event_public(slug):
+    event=get_db().execute('SELECT * FROM event_ticket_events WHERE slug=? AND active=1',(slug,)).fetchone()
+    if not event: abort(404)
+    return render_template('event_public.html',event=event,tiers=_event_price_tiers(event))
+
+@bp.post('/ticketing/event/<slug>/request')
+def event_request_ticket(slug):
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE slug=? AND active=1',(slug,)).fetchone()
+    if not event: abort(404)
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); phone=request.form.get('phone','').strip(); email=request.form.get('email','').strip().lower(); tier=request.form.get('ticket_tier','regular').strip().lower(); mpesa=request.form.get('mpesa_code','').strip()
+    if not name or gender not in {'male','female'}:
+        flash('Enter your name and choose your gender.','error'); return redirect(url_for('public.event_public',slug=slug))
+    try: phone_n=_normalise_event_phone(phone)
+    except ValueError:
+        flash('Enter the M-Pesa phone number you are paying from, e.g. 0712345678.','error'); return redirect(url_for('public.event_public',slug=slug))
+    if (event['ticket_style'] or 'tiers').lower()=='single': tier='regular'
+    if tier not in {'regular','vip','vvip'}: tier='regular'
+    expected=_event_price(event,tier)
+    if expected<=0:
+        flash('This event does not currently have a valid price for that ticket.','error'); return redirect(url_for('public.event_public',slug=slug))
+    code,access=_make_event_ticket(db,event,name=name,gender=gender,phone=phone_n,email=email,amount=expected,mpesa_code=mpesa,tier=tier,source='visitor')
+    db.commit(); ticket=db.execute('SELECT * FROM event_tickets WHERE access_token=?',(access,)).fetchone()
+    payment_started=False
+    try:
+        from .payments import mpesa_configured,create_payment_intent,start_payment
+        if mpesa_configured():
+            intent=create_payment_intent(kind='event_ticket',target_id=ticket['id'],event_id=event['id'],amount=expected,phone=phone_n,metadata={'ticket_access_token':access,'ticket_code':code})
+            start_payment(intent); payment_started=True
+    except Exception:
+        payment_started=False
+    if payment_started: flash('Payment prompt sent to your phone. Once the exact payment is received, your ticket can unlock automatically.','success')
+    else: flash('Ticket request saved as pending. Pay using the event instructions, then approval can happen automatically on an exact match or manually.','success')
+    return redirect(url_for('public.event_ticket_access',access_token=access))
+
+@bp.post('/ticketing/event/<int:event_id>/add-attendee')
+def event_add_attendee(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    name=request.form.get('name','').strip(); gender=request.form.get('gender','').strip().lower(); mpesa=request.form.get('mpesa_code','').strip(); tier=request.form.get('ticket_tier','regular').lower(); phone=request.form.get('phone','').strip(); email=request.form.get('email','').strip().lower()
+    if not name or gender not in {'male','female'} or len(mpesa)<3:
+        flash('Add name, gender and the M-Pesa code.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    if (event['ticket_style'] or 'tiers').lower()=='single': tier='regular'
+    expected=_event_price(event,tier)
+    if expected<=0: flash('That ticket level does not have a configured price.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    phone_n=''
+    if phone:
+        try: phone_n=_normalise_event_phone(phone)
+        except ValueError: flash('Use a valid Kenyan M-Pesa phone number when adding a guest.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    _make_event_ticket(db,event,name=name,gender=gender,phone=phone_n,email=email,amount=expected,mpesa_code=mpesa,tier=tier,source='host'); db.commit()
+    flash('Ticket generated and added to the event list.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.get('/ticketing/ticket/from-id/<int:ticket_id>')
+def event_ticket_from_id(ticket_id):
+    row=get_db().execute('SELECT access_token,approval_status FROM event_tickets WHERE id=?',(ticket_id,)).fetchone()
+    if not row: abort(404)
+    if session.get('user_id') is None and row['approval_status']=='approved':
+        return redirect(url_for('public.event_ticket_access',access_token=row['access_token']))
+    if session.get('user_id') is None:
+        locked=get_db().execute('SELECT t.id,t.attendee_name,e.title event_title FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.id=?',(ticket_id,)).fetchone()
+        return render_template('event_ticket_locked.html',ticket=locked)
+    return redirect(url_for('public.event_ticket_access',access_token=row['access_token']))
+
+@bp.get('/ticketing/ticket/<ticket_code>')
+def event_ticket_view(ticket_code):
+    row=get_db().execute("SELECT access_token FROM event_tickets WHERE ticket_code=?",(ticket_code,)).fetchone()
+    if not row: abort(404)
+    return redirect(url_for('public.event_ticket_access',access_token=row['access_token']))
+
+@bp.get('/ticketing/my-ticket/<access_token>')
+def event_ticket_access(access_token):
+    row=_event_ticket_row_by_access(access_token)
+    if not row: abort(404)
+    qrdata=_event_qr_url(row) if row['approval_status']=='approved' and row['ticket_status']!='void' else ''
+    qr=make_qr_bytes(qrdata) if qrdata else b''
+    return render_template('event_ticket.html',ticket=row,qr=qr,access_token=access_token)
+
+@bp.get('/ticketing/my-ticket/<access_token>/download')
+def event_ticket_download(access_token):
+    row=_event_ticket_row_by_access(access_token)
+    if not row: abort(404)
+    if row['approval_status']!='approved' or row['ticket_status']=='void':
+        return redirect(url_for('public.event_ticket_access',access_token=access_token))
+    from io import BytesIO
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    import base64
+    from pathlib import Path
+    buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4)
+    design=request.args.get('design','classic')
+    bg={'classic':('#fbf6ea','#12212b'),'bold':('#d8f36a','#12212b'),'split':('#77e1d2','#12212b')}.get(design,('#fbf6ea','#12212b'))
+    c.setFillColor(bg[0]); c.roundRect(14*mm,25*mm,W-28*mm,H-50*mm,10*mm,fill=1,stroke=0)
+    c.setFillColor(bg[1]); c.setFont('Helvetica-Bold',9); c.drawString(20*mm,H-39*mm,'EVENT TICKET')
+    c.setFont('Helvetica-Bold',25); c.drawString(20*mm,H-58*mm,(row['event_title'] or '')[:36])
+    y=H-82*mm
+    for label,val in [('NAME',row['attendee_name']),('GENDER',row['attendee_gender'].title()),('TICKET',row['ticket_tier'].upper()),('CODE',row['ticket_code']),('DATE',f"{row['event_date'] or '—'} {row['event_time'] or ''}".strip()),('VENUE',row['venue'] or '—')]:
+        c.setFont('Helvetica-Bold',7); c.drawString(20*mm,y,label); y-=5*mm; c.setFont('Helvetica',12); c.drawString(20*mm,y,str(val)[:44]); y-=12*mm
+    qrbytes=make_qr_bytes(_event_qr_url(row)); tmp=BytesIO(qrbytes); c.drawImage(ImageReader(tmp),W-74*mm,29*mm,width=52*mm,height=52*mm,mask='auto')
+    sig_path=Path(current_app.root_path)/'static'/'event-signature.png'
+    if sig_path.exists():
+        c.drawImage(ImageReader(str(sig_path)),20*mm,43*mm,width=48*mm,height=11*mm,mask='auto')
+        c.setFillColor(bg[1]); c.setFont('Helvetica',6.5); c.drawString(20*mm,40*mm,'EVENT AUTHORIZATION')
+    c.setFillColor(bg[1]); c.setFont('Helvetica-Bold',7); c.drawString(20*mm,31*mm,'SCAN ONCE · SERVER VERIFIED · QR EXPIRES AFTER ENTRY')
+    c.showPage(); c.save(); buf.seek(0)
+    safe_title=re.sub(r'[^A-Za-z0-9_-]','-',row['event_title']); return send_file(buf,mimetype='application/pdf',as_attachment=True,download_name=f"{safe_title}-{row['ticket_code']}.pdf")
+
+@bp.get('/ticketing/api/events')
+def ticketing_events_api():
+    q=request.args.get('q','').strip(); db=get_db(); events=db.execute('SELECT id,slug,title,description,event_date,event_time,venue,cover_image FROM event_ticket_events WHERE active=1 ORDER BY id DESC LIMIT 120').fetchall()
+    from difflib import SequenceMatcher
+    ranked=[]
+    for e in events:
+        title=(e['title'] or '').lower(); query=q.lower(); score=.5 if not query else SequenceMatcher(None,query,title).ratio()
+        if query and query in title: score=.99
+        if query and any(term in title for term in re.findall(r"[\w']+",query)): score=max(score,.83)
+        if score>=.4: ranked.append((score,e))
+    ranked.sort(key=lambda x:(x[0],x[1]['id']),reverse=True); return jsonify([{**dict(e),'score':round(score,3)} for score,e in ranked[:12]])
+
+@bp.get('/ticketing/find')
+def ticketing_find():
+    q=request.args.get('q','').strip(); db=get_db(); events=db.execute('SELECT id,slug,title,description,event_date,event_time,venue,cover_image FROM event_ticket_events WHERE active=1 ORDER BY id DESC').fetchall()
+    if q:
+        from difflib import SequenceMatcher
+        ranked=[]
+        for e in events:
+            title=(e['title'] or '').lower(); score=SequenceMatcher(None,q.lower(),title).ratio()
+            if q.lower() in title: score=.99
+            if any(term in title for term in re.findall(r"[\w']+",q.lower())): score=max(score,.83)
+            if score>=.4: ranked.append((score,e))
+        ranked.sort(key=lambda x:(x[0],x[1]['id']),reverse=True); events=[e for _,e in ranked[:30]]
+    else: events=list(events[:30])
+    return render_template('ticketing_find.html',events=events,q=q)
+
+@bp.post('/ticketing/event/<int:event_id>/edit')
+def event_edit(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    title=request.form.get('title','').strip()
+    if not title: flash('Your event needs a name.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    try: regular=max(0,int(request.form.get('regular_price','0') or 0)); vip=max(0,int(request.form.get('vip_price','0') or 0)); vvip=max(0,int(request.form.get('vvip_price','0') or 0))
+    except ValueError: regular=vip=vvip=0
+    cover=event_image_upload() or event['cover_image']; slug=event['slug'] if title.lower()==event['title'].lower() else event_public_slug(db,title)
+    style=request.form.get('ticket_style',event['ticket_style'] or 'tiers').strip().lower()
+    if style not in {'single','tiers'}: style='tiers'
+    if style=='single': vip=vvip=0
+    visibility=request.form.get('visibility',event['visibility'] or 'public').strip().lower()
+    if visibility not in {'public','unlisted'}: visibility='public'
+    db.execute("""UPDATE event_ticket_events SET title=?,slug=?,description=?,event_date=?,event_time=?,venue=?,price=?,currency=?,payment_instructions=?,ticket_note=?,cover_image=?,ticket_style=?,visibility=?,regular_price=?,vip_price=?,vvip_price=? WHERE id=?""",(title,slug,request.form.get('description','').strip(),request.form.get('event_date','').strip(),request.form.get('event_time','').strip(),request.form.get('venue','').strip(),regular,request.form.get('currency','KES').strip().upper()[:6] or 'KES',request.form.get('payment_instructions','').strip(),request.form.get('ticket_note','').strip(),cover,style,visibility,regular,vip,vvip,event_id)); db.commit()
+    flash('Event details updated.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.post('/ticketing/event/<int:event_id>/delete')
+def event_delete(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    db.execute('UPDATE event_ticket_events SET active=0 WHERE id=?',(event_id,)); db.execute("UPDATE event_tickets SET ticket_status='void' WHERE event_id=? AND ticket_status='valid'",(event_id,)); db.commit(); flash('Event removed from public ticketing. Existing tickets are void.','success'); return redirect(url_for('public.ticketing_home'))
+
+@bp.post('/ticketing/event/<int:event_id>/scanner-pin')
+def event_scanner_pin(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    pin=request.form.get('scanners_pin','').strip()
+    if not pin.isdigit() or not 4<=len(pin)<=8: flash('Scanner PIN must be 4–8 digits.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    db.execute('UPDATE event_ticket_events SET scanners_pin_hash=? WHERE id=?',(hash_pin(pin),event_id)); db.commit(); flash('Scanner PIN updated.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.route('/ticketing/event/<int:event_id>/manage',methods=['GET'])
+def event_manage(event_id):
+    if not session.get('user_id') and not session.get('admin_auth'): return redirect(url_for('public.login',next=request.path))
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not event_ticket_owner(event) and not session.get('admin_auth'): abort(403)
+    tickets=db.execute('SELECT * FROM event_tickets WHERE event_id=? ORDER BY CASE WHEN ticket_status=\'used\' THEN 2 WHEN approval_status=\'pending\' THEN 0 ELSE 1 END,id DESC',(event_id,)).fetchall()
+    joints=db.execute('SELECT * FROM event_joint_tickets WHERE event_id=? ORDER BY id DESC',(event_id,)).fetchall()
+    return render_template('event_manage.html',event=event,tickets=tickets,joints=joints)
+
+@bp.post('/ticketing/event/<int:event_id>/approve/<int:ticket_id>')
+def event_approve(event_id,ticket_id):
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    code=request.form.get('mpesa_code','').strip(); tier=request.form.get('ticket_tier','auto').lower()
+    if len(code)<3: flash('Enter the M-Pesa code before approving.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    row=db.execute("SELECT * FROM event_tickets WHERE id=? AND event_id=? AND approval_status='pending'",(ticket_id,event_id)).fetchone()
+    if not row: flash('That payment request is no longer pending.','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    if (event['ticket_style'] or 'tiers').lower()=='single': tier='regular'
+    elif tier not in {'regular','vip','vvip'}: tier=_tier_for_amount(event,row['amount'],'auto')
+    expected=_event_price(event,tier)
+    if expected<=0 or int(row['amount'])!=expected:
+        flash(f'Amount must exactly match the selected ticket price (KES {expected:,}).','error'); return redirect(url_for('public.event_manage',event_id=event_id))
+    cur=db.execute("UPDATE event_tickets SET payment_reference=?,payment_status='verified',ticket_tier=?,approval_status='approved',approval_method='manual',approved_at=? WHERE id=? AND event_id=? AND approval_status='pending'",(code,tier,now(),ticket_id,event_id)); db.commit()
+    flash('Payment approved and ticket unlocked.' if cur.rowcount else 'Could not approve that ticket.','success' if cur.rowcount else 'error'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.post('/ticketing/event/<int:event_id>/reject/<int:ticket_id>')
+def event_reject(event_id,ticket_id):
+    db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(event_id,)).fetchone()
+    if not event: abort(404)
+    if not session.get('admin_auth') and not event_ticket_owner(event): abort(403)
+    db.execute("UPDATE event_tickets SET approval_status='rejected',payment_status='rejected',ticket_status='void' WHERE id=? AND event_id=? AND approval_status='pending'",(ticket_id,event_id)); db.commit(); flash('Request rejected.','success'); return redirect(url_for('public.event_manage',event_id=event_id))
+
+@bp.route('/ticketing/staff-scanner',methods=['GET','POST'])
+def staff_scanner():
+    if request.method=='POST':
+        code=request.form.get('scanner_code','').strip().upper(); pin=request.form.get('pin','').strip(); scanner_name=request.form.get('scanner_name','').strip()[:80]; db=get_db(); event=db.execute('SELECT * FROM event_ticket_events WHERE scanner_code=? AND active=1',(code,)).fetchone()
+        if event and verify_pin(event['scanners_pin_hash'],pin) and scanner_name:
+            session['event_scanner_event_id']=event['id']; session['event_scanner_name']=scanner_name; session['event_scanner_unlocked']=True; return redirect(url_for('public.staff_scanner_live'))
+        flash('That event code or Scanner PIN is not correct.','error')
+    return render_template('event_scanner.html',authorized=False)
+
+@bp.get('/ticketing/staff-scanner/live')
+def staff_scanner_live():
+    if not session.get('event_scanner_unlocked') or not session.get('event_scanner_event_id'):
+        return redirect(url_for('public.staff_scanner'))
+    db=get_db(); event=db.execute('SELECT id,title,event_date,event_time,venue FROM event_ticket_events WHERE id=? AND active=1',(session['event_scanner_event_id'],)).fetchone()
+    if not event: session.pop('event_scanner_event_id',None); session.pop('event_scanner_unlocked',None); return redirect(url_for('public.staff_scanner'))
+    tickets=db.execute("SELECT id,attendee_name,attendee_gender,ticket_tier,amount,ticket_status FROM event_tickets WHERE event_id=? AND approval_status='approved' ORDER BY attendee_name COLLATE NOCASE,id",(event['id'],)).fetchall()
+    return render_template('event_scanner_live.html',event=event,tickets=tickets,scanner_name=session.get('event_scanner_name','Scanner'))
+
+@bp.post('/ticketing/staff-scanner/exit')
+def staff_scanner_exit():
+    session.pop('event_scanner_event_id',None); session.pop('event_scanner_name',None); session.pop('event_scanner_unlocked',None); return redirect(url_for('public.ticketing_home'))
+
+@bp.get('/ticketing/scan/<ticket_code>')
+def event_scan(ticket_code):
+    sig=request.args.get('sig','')
+    if not verify_ticket(ticket_code,sig):
+        return jsonify(ok=False,reason='This QR is not authentic.') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,reason='This QR is not authentic.')
+    db=get_db(); row=db.execute("SELECT t.*,e.title event_title,e.id event_id,e.event_date,e.event_time,e.venue FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.ticket_code=?",(ticket_code,)).fetchone()
+    if not row:
+        return jsonify(ok=False,reason='Ticket not found.') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,reason='Ticket not found.')
+    if session.get('event_scanner_event_id') != row['event_id'] or not session.get('event_scanner_unlocked'):
+        reason='Open the staff scanner and enter its assigned Event Code and Scanner PIN first.'
+        return jsonify(ok=False,reason=reason) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,reason=reason)
+    try: db.execute('BEGIN IMMEDIATE')
+    except sqlite3.OperationalError: pass
+    fresh=db.execute('SELECT * FROM event_tickets WHERE id=?',(row['id'],)).fetchone()
+    if fresh['approval_status']!='approved':
+        db.rollback(); reason='This ticket is waiting for approval.'
+        return jsonify(ok=False,reason=reason) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    if fresh['ticket_status']!='valid':
+        from datetime import datetime, timezone
+        recent=False
+        if fresh['checked_in_at']:
+            try: recent=(datetime.now(timezone.utc)-datetime.fromisoformat(fresh['checked_in_at'])).total_seconds() < 30
+            except ValueError: recent=False
+        db.rollback()
+        if recent:
+            guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
+            return jsonify(ok=True,grace=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance='Already approved — '+guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
+        reason='This ticket has already been used or voided.'
+        return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    cur=db.execute("UPDATE event_tickets SET ticket_status='used',checked_in_at=?,checked_in_by=? WHERE id=? AND ticket_status='valid'",(now(),session.get('event_scanner_name','Scanner'),row['id'])); db.commit()
+    if cur.rowcount!=1:
+        reason='This ticket was approved moments ago.'
+        return jsonify(ok=False,reason=reason,used=True) if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=False,ticket=row,reason=reason)
+    guidance = 'VVIP — priority attention.' if row['ticket_tier']=='vvip' else ('VIP — priority attention.' if row['ticket_tier']=='vip' else 'Regular ticket.')
+    return jsonify(ok=True,ticket_id=row['id'],ticket_code=row['ticket_code'],name=row['attendee_name'],tier=row['ticket_tier'].upper(),guidance=guidance,reason='APPROVED') if request.args.get('ajax')=='1' else render_template('event_scan_result.html',valid=True,ticket=row,reason=guidance)
+
+def _listener_token():
+    return setting('event_mpesa_listener_token','').strip() or os.environ.get('EVENT_MPESA_LISTENER_TOKEN','').strip()
+
+@bp.post('/api/ticketing/mpesa-message')
+def ticketing_mpesa_message():
+    expected=_listener_token(); payload=request.get_json(silent=True) or request.form.to_dict()
+    supplied=(request.headers.get('X-Listener-Token') or payload.get('listener_token') or '').strip()
+    if not expected or not supplied or not hmac.compare_digest(expected,supplied): return jsonify(ok=False,error='unauthorized'),401
+    phone=payload.get('phone') or payload.get('msisdn') or payload.get('MSISDN') or ''
+    ref=str(payload.get('transaction_code') or payload.get('mpesa_code') or payload.get('receipt') or payload.get('TransID') or '').strip()
+    try: amount=int(float(str(payload.get('amount') or payload.get('TransAmount') or 0)))
+    except (TypeError,ValueError): amount=0
+    try: phone_n=_normalise_event_phone(phone)
+    except ValueError: return jsonify(ok=False,error='invalid_phone'),400
+    if amount<=0 or not ref: return jsonify(ok=False,error='missing_amount_or_reference'),400
+    db=get_db(); rows=db.execute("""SELECT t.*,e.active,e.regular_price,e.vip_price,e.vvip_price,e.ticket_style
+        FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id
+        WHERE t.attendee_phone=? AND t.amount=? AND t.approval_status='pending' AND t.ticket_status='valid' AND e.active=1
+        ORDER BY t.id""",(phone_n,amount)).fetchall()
+    if not rows: return jsonify(ok=True,matched=False,reason='No pending ticket matched that phone number and exact amount.'),200
+    if len(rows)>1: return jsonify(ok=True,matched=False,ambiguous=True,reason='Multiple pending tickets match. Manual approval is required.',count=len(rows)),200
+    row=rows[0]; event=db.execute('SELECT * FROM event_ticket_events WHERE id=?',(row['event_id'],)).fetchone(); tier=row['ticket_tier'] if row['ticket_tier'] in {'regular','vip','vvip'} else 'regular'; expected=_event_price(event,tier)
+    if amount!=expected or int(row['amount'])!=expected: return jsonify(ok=True,matched=False,reason='Amount does not exactly match the configured ticket price.'),200
+    cur=db.execute("UPDATE event_tickets SET payment_reference=?,payment_status='verified',approval_status='approved',approval_method='auto_mpesa',approved_at=? WHERE id=? AND approval_status='pending'",(ref,now(),row['id'])); db.commit()
+    return jsonify(ok=True,matched=True,approved=bool(cur.rowcount),ticket_code=row['ticket_code'],ticket_id=row['id'])
+
+@bp.post('/payments/mpesa/callback/<token>')
+def mpesa_callback(token):
+    from .payments import handle_mpesa_callback, _secret
+    expected=_secret('mpesa_callback_token','MPESA_CALLBACK_TOKEN')
+    if not expected or not hmac.compare_digest(expected,token): return jsonify(ok=False),403
+    return jsonify(handle_mpesa_callback(request.get_json(silent=True) or {}))
+
+@bp.post('/payments/mpesa/callback')
+def mpesa_callback_open():
+    from .payments import handle_mpesa_callback
+    return jsonify(handle_mpesa_callback(request.get_json(silent=True) or {}))
+
+@bp.get('/payments/status/<reference>')
+def payment_status(reference):
+    row=get_db().execute('SELECT reference,kind,target_id,amount,currency,status,provider_transaction_id,result_desc,paid_at FROM payment_intents WHERE reference=?',(reference.strip(),)).fetchone()
+    if not row: abort(404)
+    return jsonify(dict(row))
+
+@bp.before_request
+def _ensure_stuff_session():
+    # Backward compatibility only: older builds used a My Stuff-specific lock.
+    # The current app uses one optional account-wide Open Road ID instead.
+    uid = session.get('user_id')
+    if session.get('_stuff_user_id') != uid:
+        session.pop('stuff_unlocked', None)
+        session['_stuff_user_id'] = uid
+
+
+def _current_user_for_stuff():
+    # My Stuff is an independent personal workspace. It never uses the
+    # normal Adventure PIN/login gate. Authenticated users use their account;
+    # visitors get a private anonymous workspace identified only by a session
+    # token. This keeps Travel booking/authentication completely unchanged.
+    uid = session.get('user_id') or session.get('stuff_user_id')
+    if not uid:
+        return _ensure_stuff_guest_user()
+    return get_db().execute('SELECT * FROM users WHERE id=? AND deleted_at IS NULL', (uid,)).fetchone()
+
+
+def _ensure_stuff_guest_user():
+    existing = session.get('stuff_user_id')
+    db = get_db()
+    if existing:
+        row = db.execute('SELECT * FROM users WHERE id=? AND is_stuff_guest=1 AND deleted_at IS NULL', (existing,)).fetchone()
+        if row:
+            return row
+    guest_key = secrets.token_hex(16)
+    # Guest rows are deliberately unusable for normal Travel login.
+    cur = db.execute(
+        "INSERT INTO users(name,phone,email,pin_hash,recovery_question,recovery_answer_hash,is_stuff_guest,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        ('My Stuff Guest', 'guest-' + guest_key[:12], 'stuff-' + guest_key + '@local.openroad', hash_pin(secrets.token_hex(16)), 'none', hash_answer(secrets.token_hex(16)), 1, now())
+    )
+    db.commit()
+    session['stuff_user_id'] = cur.lastrowid
+    return db.execute('SELECT * FROM users WHERE id=?', (cur.lastrowid,)).fetchone()
+
+
+def _global_simple_id_hash(user):
+    # Migrate the previous My Stuff ID into the single app-wide ID lazily.
+    keys=set(user.keys()) if hasattr(user, 'keys') else set()
+    simple=user['simple_id_hash'] if 'simple_id_hash' in keys else ''
+    legacy=user['stuff_id_hash'] if 'stuff_id_hash' in keys else ''
+    return simple or legacy
+
+
+def _stuff_colors():
+    return ['lime', 'aqua', 'orange', 'pink', 'blue', 'yellow', 'teal', 'white']
+
+def _journal_moods():
+    return ['morning', 'midday', 'evening']
+
+def _journal_secret_set(user):
+    return bool(user['journal_secret_hash'])
+
+def _journal_unlocked(user):
+    return not _journal_secret_set(user) or session.get('journal_unlocked_user') == user['id']
+
+def _journal_require_unlock(user):
+    if _journal_unlocked(user):
+        return None
+    return render_template('journal_lock.html')
+
+def _journal_excerpt(body, limit=190):
+    text=re.sub(r'\s+', ' ', (body or '')).strip()
+    return text if len(text) <= limit else text[:limit-1].rstrip() + '…'
+
+
+def _safe_stuff_image_name(original):
+    from werkzeug.utils import secure_filename
+    base = secure_filename(original) or 'image'
+    stem = base.rsplit('.', 1)[0][:55]
+    return f"{stem}-{secrets.token_hex(5)}.jpg"
+
+
+def _stuff_redirect(section='journal'):
+    return redirect(url_for('public.my_stuff', section=section))
+
+
+
+def _stuff_id_ready(user):
+    return bool(_global_simple_id_hash(user))
+
+def _cards_allowed(user):
+    return True
+
+
+def _stuff_use_and_context(user, column):
+    db=get_db()
+    db.execute(f"UPDATE users SET {column}=COALESCE({column},0)+1 WHERE id=?", (user['id'],))
+    db.commit()
+    refreshed=db.execute('SELECT * FROM users WHERE id=?', (user['id'],)).fetchone()
+    return refreshed
+
+def _render_stuff_id_form(next_endpoint):
+    return url_for('public.my_stuff_id', next=next_endpoint)
+
+def _journal_sidebar_data(user, view='active'):
+    db=get_db()
+    journals=db.execute("SELECT * FROM journal_entries WHERE user_id=? AND archived=? ORDER BY favorite DESC, updated_at DESC, id DESC", (user['id'], 1 if view=='archived' else 0)).fetchall()
+    journal_count=db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=0',(user['id'],)).fetchone()['n']
+    archived_count=db.execute('SELECT COUNT(*) n FROM journal_entries WHERE user_id=? AND archived=1',(user['id'],)).fetchone()['n']
+    cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    return journals, journal_count, archived_count, cards
+
+@bp.get('/my-stuff')
+def my_stuff():
+    # My Stuff is always an open doorway. It must never show a PIN/login gate.
+    # Journal, Cards, Copy & Paste and Edits Studio are all independently accessible.
+    # None of them redirects to the normal Adventure PIN/login gate.
+    return render_template('my_stuff.html')
+
+@bp.get('/my-stuff/journal')
+def my_stuff_journal():
+    user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    user=_stuff_use_and_context(user,'stuff_journal_uses')
+    view=request.args.get('view','active').strip().lower()
+    if view not in {'active','archived'}: view='active'
+    selected=request.args.get('entry','').strip()
+    edit_mode=request.args.get('edit')=='1' or request.args.get('write')=='1'
+    journals,count,archived_count,_cards=_journal_sidebar_data(user,view)
+    entry=None
+    if selected.isdigit():
+        entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
+    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user))
+
+@bp.get('/my-stuff/journal/settings')
+def my_stuff_journal_settings():
+    user=_current_user_for_stuff()
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    return render_template('journal_settings.html', journal_secret_set=_journal_secret_set(user), simple_id_exists=_stuff_id_ready(user))
+
+@bp.post('/my-stuff/journal/settings')
+def my_stuff_journal_settings_save():
+    user=_current_user_for_stuff()
+    action=request.form.get('action','').strip()
+    db=get_db()
+    if action=='set-secret':
+        value=request.form.get('secret_id','').strip()
+        if not re.fullmatch(r'[A-Za-z0-9]{4,12}', value):
+            flash('Use 4–12 letters or numbers for your Journal secret.','error')
+        else:
+            db.execute('UPDATE users SET journal_secret_hash=? WHERE id=?',(hash_pin(value),user['id'])); db.commit(); session['journal_unlocked_user']=user['id']; flash('Journal secret is active. It protects Journal only.','success')
+    elif action=='remove-secret':
+        db.execute('UPDATE users SET journal_secret_hash=NULL WHERE id=?',(user['id'],)); db.commit(); session.pop('journal_unlocked_user',None); flash('Journal secret removed.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/journal/unlock')
+def my_stuff_journal_unlock():
+    user=_current_user_for_stuff(); value=request.form.get('secret_id','').strip()
+    if _journal_secret_set(user) and verify_pin(user['journal_secret_hash'], value):
+        session['journal_unlocked_user']=user['id']; return redirect(url_for('public.my_stuff_journal'))
+    flash('That Journal secret is not correct.','error'); return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/id')
+def my_stuff_id():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    value=request.form.get('simple_id','').strip()
+    nxt=request.form.get('next','journal').strip().lower()
+    destinations={'journal':'public.my_stuff_journal','cards':'public.my_stuff_cards','color-cards':'public.my_stuff_cards','copy-paste':'public.my_stuff_copy_paste','edits-studio':'public.my_stuff_edits_studio'}
+    if not re.fullmatch(r'[A-Za-z0-9]{4,8}',value):
+        flash('Choose a simple 4–8 character ID using letters and numbers.','error')
+    elif _global_simple_id_hash(user):
+        flash('You already have an Open Road ID. The same ID is used throughout the app.','error')
+    else:
+        db=get_db(); db.execute('UPDATE users SET simple_id_hash=? WHERE id=?',(hash_pin(value),user['id'])); db.commit()
+        flash('Your Open Road ID is ready. Use the same ID throughout Open Road.','success')
+    endpoint=destinations.get(nxt,'public.my_stuff_journal')
+    return redirect(url_for(endpoint))
+
+@bp.post('/my-stuff/journal/save')
+def my_stuff_journal_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); entry_id=request.form.get('entry_id','').strip(); title=request.form.get('title','').strip()[:140]
+    body=request.form.get('body','').strip(); mood=request.form.get('mood','morning').strip().lower(); segments_json=request.form.get('segments_json','').strip(); tags=request.form.get('tags','').strip()[:240]; cover_color=request.form.get('cover_color','cream').strip().lower()
+    if mood not in _journal_moods(): mood='morning'
+    if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
+    clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
+    if not title or not body:
+        flash('Give your journal story a title and some words first.','error'); return redirect(url_for('public.my_stuff_journal'))
+    if entry_id:
+        owned=db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+        if not owned: abort(404)
+        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,segments_json=?,updated_at=? WHERE id=? AND user_id=?',(title,body,mood,clean_tags,cover_color,segments_json,now(),entry_id,user['id'])); saved_id=int(entry_id); msg='Journal story updated.'
+    else:
+        cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',(user['id'],title,body,mood,clean_tags,cover_color,segments_json,now(),now())); saved_id=cur.lastrowid; msg='Journal story saved.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_journal',entry=saved_id))
+
+@bp.get('/my-stuff/journal/<int:entry_id>')
+def my_stuff_journal_view(entry_id):
+    user=_current_user_for_stuff(); blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    row=get_db().execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    return redirect(url_for('public.my_stuff_journal', entry=entry_id, edit='1' if request.args.get('edit')=='1' else None))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/favorite')
+def my_stuff_journal_favorite(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); row=db.execute('SELECT favorite FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET favorite=? WHERE id=? AND user_id=?',(0 if row['favorite'] else 1,entry_id,user['id'])); db.commit()
+    return redirect(request.form.get('next') or url_for('public.my_stuff_journal',entry=entry_id))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/archive')
+def my_stuff_journal_archive(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); row=db.execute('SELECT archived FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
+    if not row: abort(404)
+    db.execute('UPDATE journal_entries SET archived=? WHERE id=? AND user_id=?',(0 if row['archived'] else 1,entry_id,user['id'])); db.commit(); flash('Journal story updated.','success')
+    return redirect(url_for('public.my_stuff_journal',view='archived' if not row['archived'] else 'active'))
+
+@bp.post('/my-stuff/journal/<int:entry_id>/delete')
+def my_stuff_journal_delete(entry_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    blocked=_journal_require_unlock(user)
+    if blocked: return blocked
+    db=get_db(); cur=db.execute('DELETE FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])); db.commit()
+    if not cur.rowcount: abort(404)
+    flash('Journal story deleted.','success'); return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/save')
+def my_stuff_folder_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); folder_id=request.form.get('folder_id','').strip(); name=request.form.get('name','').strip()[:60]; color=request.form.get('color','lime')
+    if color not in _stuff_colors(): color='lime'
+    if not name: flash('Give the folder a name.','error'); return redirect(url_for('public.my_stuff_journal'))
+    try:
+        if folder_id: db.execute('UPDATE stuff_folders SET name=?,color=? WHERE id=? AND user_id=?',(name,color,folder_id,user['id']))
+        else: db.execute('INSERT INTO stuff_folders(user_id,name,color,created_at) VALUES(?,?,?,?)',(user['id'],name,color,now()))
+        db.commit(); flash('Folder saved.','success')
+    except sqlite3.IntegrityError: flash('You already have a folder with that name.','error')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.post('/my-stuff/folder/<int:folder_id>/delete')
+def my_stuff_folder_delete(folder_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM stuff_folders WHERE id=? AND user_id=?',(folder_id,user['id'])); db.commit(); flash('Folder deleted.','success')
+    return redirect(url_for('public.my_stuff_journal'))
+
+@bp.get('/my-stuff/cards')
+@bp.get('/my-stuff/color-cards')
+def my_stuff_cards():
+    user=_current_user_for_stuff()
+    has_id=_stuff_id_ready(user)
+    db=get_db(); cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
+    import base64
+    qr_b64=base64.b64encode(make_qr_bytes(url_for('public.home',_external=True))).decode()
+    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=int(user['stuff_card_uses'] or 0),simple_id_exists=has_id,qr_b64=qr_b64)
+
+@bp.post('/my-stuff/card/save')
+def my_stuff_card_save():
+    return my_stuff_color_card_save()
+
+@bp.post('/my-stuff/color-card/save')
+def my_stuff_color_card_save():
+    user=_current_user_for_stuff()
+    if not user: return jsonify(ok=False,message='Workspace unavailable.'),403
+    if not _cards_allowed(user): return jsonify(ok=False,message='Create your Open Road ID to keep using My Cards.'),403
+    f=request.form; db=get_db(); card_id=f.get('card_id','').strip(); title=f.get('title','').strip()[:100]; body=f.get('body','').strip()[:4000]
+    color=f.get('color','yellow').strip().lower(); font=f.get('font_style','bold').strip().lower(); shape=f.get('shape_style','sticky').strip().lower(); bg=f.get('background_style','solid').strip().lower(); deco=f.get('decoration','spark').strip().lower(); custom_bg=f.get('custom_bg','').strip()[:20]; custom_text=f.get('custom_text','').strip()[:20]; align=f.get('text_align','left').strip().lower(); border=f.get('border_style','classic').strip().lower(); texture=f.get('texture_style','none').strip().lower(); accent=f.get('accent_color','').strip()[:20]; design=f.get('design_style','sunny').strip().lower(); sig=1 if f.get('signature_enabled') in {'1','on','true'} else 0
+    allowed_design={'sunny','editorial','poster','minimal','playful','night'}; allowed_colors={'lime','aqua','orange','pink','blue','yellow','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}; allowed_fonts={'bold','soft','hand','mono','serif','display','light','wide','typewriter','comic','caps','elegant'}; allowed_shapes={'sticky','rounded','cloud','ticket','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}; allowed_bg={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}; allowed_border={'classic','thin','dashed','double','none'}; allowed_texture={'none','soft-dots','lines','grid','paper'}; allowed_align={'left','center','right'}
+    if design not in allowed_design: design='sunny'
+    if color not in allowed_colors: color='yellow'
+    if font not in allowed_fonts: font='bold'
+    if shape not in allowed_shapes: shape='sticky'
+    if bg not in allowed_bg: bg='solid'
+    if border not in allowed_border: border='classic'
+    if texture not in allowed_texture: texture='none'
+    if align not in allowed_align: align='left'
+    try: scale=min(140,max(75,int(f.get('font_scale','100') or 100)))
+    except ValueError: scale=100
+    if not title and not body: return jsonify(ok=False,message='Write something first.')
+    if card_id:
+        row=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+        if not row: return jsonify(ok=False,message='That card is not yours.'),404
+        db.execute("""UPDATE stuff_cards SET title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,decoration=?,custom_bg=?,custom_text=?,text_align=?,font_scale=?,border_style=?,texture_style=?,accent_color=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?""",(title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,sig,now(),card_id,user['id']))
+        saved_id=int(card_id)
+    else:
+        cur=db.execute("""INSERT INTO stuff_cards(user_id,title,body,color,font_style,shape_style,design_style,background_style,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,accent_color,signature_enabled,qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(user['id'],title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,sig,1,now(),now()))
+        saved_id=cur.lastrowid
+    db.commit(); return jsonify(ok=True,saved_id=saved_id,download_url=url_for('public.my_stuff_card_download',card_id=saved_id))
+
+@bp.post('/my-stuff/color-card/<int:card_id>/delete')
+def my_stuff_color_card_delete(card_id):
+    return my_stuff_card_delete(card_id)
+
+def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from io import BytesIO
+    import math, textwrap
+    palettes = {
+        'lime': ('#e9f5a5','#12212a','#89b85e'), 'aqua': ('#bceee8','#12212a','#4baea3'),
+        'orange': ('#ffc68e','#12212a','#d47a40'), 'pink': ('#ffc5d5','#12212a','#d56c8d'),
+        'blue': ('#bcd7ff','#12212a','#4d79bd'), 'yellow': ('#ffe26e','#12212a','#c89e2a'),
+        'teal': ('#78d8c9','#12212a','#389b8e'), 'white': ('#ffffff','#12212a','#d8ddd9'),
+    }
+    styles = {
+        'sunrise': ('rounded','offset'), 'editorial': ('paper','rule'), 'poster': ('blocks','frame'),
+        'minimal': ('minimal','line'), 'playful': ('blob','dots'), 'night': ('dark','glow')
+    }
+    style_key = getattr(card, '_export_style', None) or 'sunrise'
+    seed = int(getattr(card, '_export_seed', 0) or 0)
+    bg, ink, accent = palettes.get(card['color'], palettes['lime'])
+    kind, deco = styles.get(style_key, styles['sunrise'])
+    if style_key == 'night': bg, ink, accent = '#10212a','#ffffff', palettes.get(card['color'], palettes['aqua'])[0]
+    W,H=1600,1000
+    img=Image.new('RGB',(W,H),bg); d=ImageDraw.Draw(img)
+    def hexrgb(x): x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
+    bgc,inkc,accc=hexrgb(bg),hexrgb(ink),hexrgb(accent)
+    rng=__import__('random').Random(seed or card['id']*991)
+    # decorative geometry, deterministic per seed/style
+    if deco=='offset':
+        d.rounded_rectangle((42,42,W-42,H-42),radius=46,outline=inkc,width=6)
+        d.rounded_rectangle((90,90,W-90,H-90),radius=34,outline=accc,width=3)
+        for i in range(7):
+            x=rng.randint(120,W-220); y=rng.randint(110,H-300); r=rng.randint(18,60)
+            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
+    elif deco=='rule':
+        for y in (82,170): d.line((90,y,W-90,y),fill=inkc,width=3)
+        d.rectangle((90,185,220,255),fill=accc)
+    elif deco=='frame':
+        d.rectangle((55,55,W-55,H-55),outline=inkc,width=8)
+        d.rectangle((85,85,W-85,H-85),outline=accc,width=4)
+        for x in range(115,W-110,130): d.line((x,94,x+38,94),fill=accc,width=8)
+    elif deco=='line':
+        d.line((95,H-170,W-95,H-170),fill=accc,width=10)
+        d.line((95,170,620,170),fill=inkc,width=3)
+    elif deco=='dots':
+        for i in range(32):
+            x=rng.randint(70,W-70); y=rng.randint(60,H-170); r=rng.randint(4,11)
+            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
+    elif deco=='glow':
+        glow=Image.new('RGBA',(W,H),(0,0,0,0)); gd=ImageDraw.Draw(glow)
+        for _ in range(10):
+            x=rng.randint(50,W-50); y=rng.randint(50,H-220); r=rng.randint(80,230)
+            gd.ellipse((x-r,y-r,x+r,y+r),fill=accc+(40,))
+        glow=glow.filter(ImageFilter.GaussianBlur(25)); img=Image.alpha_composite(img.convert('RGBA'),glow).convert('RGB'); d=ImageDraw.Draw(img)
+    font_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
+    reg_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
+    def load(paths,size):
+        for fp in paths:
+            if Path(fp).exists(): return ImageFont.truetype(fp,size=size)
+        return ImageFont.load_default()
+    f_label=load(font_paths,34); f_title=load(font_paths,92); f_body=load(reg_paths,44); f_small=load(reg_paths,24); f_brand=load(font_paths,26)
+    d.text((110,115),'OPEN ROAD · QUICK CARD',font=f_label,fill=inkc)
+    title=card['title'] or 'Untitled card'
+    body=card['body'] or ''
+    d.text((110,205),title,font=f_title,fill=inkc)
+    max_width=1240; lines=[]
+    words=body.split(); cur=''
+    for w in words:
+        test=(cur+' '+w).strip()
+        if d.textbbox((0,0),test,font=f_body)[2] <= max_width: cur=test
+        else:
+            if cur: lines.append(cur)
+            cur=w
+    if cur: lines.append(cur)
+    lines=lines[:7]
+    y=355
+    for line in lines:
+        d.text((110,y),line,font=f_body,fill=inkc); y+=62
+    # quiet footer marker
+    footer_y=H-125
+    d.line((110,footer_y-18,W-110,footer_y-18),fill=accc,width=4)
+    d.text((110,footer_y), 'KEEP THIS. SHARE THIS. MAKE IT YOURS.', font=f_small, fill=inkc)
+    if include_branding:
+        try:
+            from .qr import make_qr_bytes
+            from PIL import Image as PILImage
+            qr_img=PILImage.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB')
+            qr_img.thumbnail((145,145), PILImage.Resampling.LANCZOS)
+            qx,qy=W-285,footer_y-75
+            d.rounded_rectangle((qx-12,qy-12,qx+qr_img.width+12,qy+qr_img.height+12),radius=18,fill=(255,255,255))
+            img.paste(qr_img,(qx,qy))
+            d.rounded_rectangle((W-720,footer_y-38,W-315,footer_y+38),radius=26,fill=inkc)
+            brand_label=brand_name[:28]
+            d.text((W-680,footer_y-17),brand_label,font=load(font_paths,23),fill=bgc)
+        except Exception:
+            d.rounded_rectangle((W-560,footer_y-38,W-118,footer_y+38),radius=26,fill=inkc)
+            d.text((W-525,footer_y-17),brand_name[:28],font=load(font_paths,23),fill=bgc)
+    return img
+
+@bp.get('/my-stuff/card/<int:card_id>/download')
+def my_stuff_card_download(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
+    if not row: abort(404)
+    style=request.args.get('style','sunrise').strip().lower()
+    allowed={'sunrise','editorial','poster','minimal','playful','night'}
+    if style not in allowed: style='sunrise'
+    try: seed=int(request.args.get('seed','0'))
+    except ValueError: seed=0
+    include=request.args.get('brand','1') not in {'0','false','no'}
+    class CardProxy:
+        def __init__(self,r,style,seed): self._r=r; self._export_style=style; self._export_seed=seed
+        def __getitem__(self,k): return self._r[k]
+    card=CardProxy(row,style,seed)
+    image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
+    out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
+    safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title']).strip('-')[:55] or 'quick-card'
+    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+
+@bp.post('/my-stuff/card/<int:card_id>/delete')
+def my_stuff_card_delete(card_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    if not _cards_allowed(user): abort(403)
+    db=get_db(); row=db.execute('SELECT image_filename FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])); db.commit()
+    if row and row['image_filename']:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['image_filename']))
+        except OSError: pass
+    flash('Card deleted.','success'); return redirect(url_for('public.my_stuff_cards'))
+
+@bp.get('/my-stuff/copy-paste')
+def my_stuff_copy_paste():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_copy_uses')
+    db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? AND id IN (SELECT MAX(id) FROM saved_copies WHERE user_id=? GROUP BY label,value) ORDER BY updated_at DESC,id DESC',(user['id'],user['id'])).fetchall()
+    edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
+    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_copy_uses'] or 0))
+
+@bp.post('/my-stuff/copy/save')
+def my_stuff_copy_save():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); item_id=request.form.get('item_id','').strip(); label=request.form.get('label','').strip()[:80]; value=request.form.get('value','').strip(); note=request.form.get('note','').strip()[:240]
+    if not label or not value: flash('Add a name and the number or code you want to keep.','error'); return redirect(url_for('public.my_stuff_copy_paste'))
+    if item_id:
+        db.execute('UPDATE saved_copies SET label=?,value=?,note=?,updated_at=? WHERE id=? AND user_id=?',(label,value,note,now(),item_id,user['id'])); msg='Saved item updated.'
+    else:
+        existing=db.execute('SELECT id FROM saved_copies WHERE user_id=? AND label=? AND value=? ORDER BY id DESC LIMIT 1',(user['id'],label,value)).fetchone()
+        if existing:
+            db.execute('UPDATE saved_copies SET note=?,updated_at=? WHERE id=? AND user_id=?',(note,now(),existing['id'],user['id'])); msg='Already saved — updated.'
+        else:
+            db.execute('INSERT INTO saved_copies(user_id,label,value,note,created_at,updated_at) VALUES(?,?,?,?,?,?)',(user['id'],label,value,note,now(),now())); msg='Saved to Copy & Paste.'
+    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_copy_paste'))
+
+@bp.get('/my-stuff/copy-paste/download')
+def my_stuff_copy_paste_download():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    rows=get_db().execute('SELECT label,value,note FROM saved_copies WHERE user_id=? ORDER BY label COLLATE NOCASE,id',(user['id'],)).fetchall()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    buf=BytesIO(); W,H=A4; c=canvas.Canvas(buf,pagesize=A4); y=H-50
+    c.setFillColorRGB(.07,.13,.17); c.setFont('Helvetica-Bold',20); c.drawString(38,y,'MY SAVES'); y-=25; c.setFillColorRGB(.08,.08,.08)
+    for row in rows:
+        if y<70: c.showPage(); y=H-50
+        c.setFont('Helvetica-Bold',10); c.drawString(42,y,str(row['label'])[:40]); c.setFont('Helvetica',10); c.drawString(235,y,str(row['value'])[:62]); y-=14
+        if row['note']: c.setFont('Helvetica-Oblique',7); c.drawString(42,y,str(row['note'])[:100]); y-=12
+    c.showPage(); c.save(); buf.seek(0); return send_file(buf,as_attachment=True,download_name='my-saves.pdf',mimetype='application/pdf')
+
+@bp.post('/my-stuff/copy/<int:item_id>/delete')
+def my_stuff_copy_delete(item_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit(); flash('Saved item deleted.','success'); return redirect(url_for('public.my_stuff_copy_paste'))
+
+@bp.get('/my-stuff/edits-studio')
+def my_stuff_edits_studio():
+    user=_current_user_for_stuff()
+    user=_stuff_use_and_context(user,'stuff_edits_uses')
+    images=get_db().execute('SELECT * FROM stuff_images WHERE user_id=? ORDER BY id DESC LIMIT 30',(user['id'],)).fetchall()
+    selected_id=request.args.get('image','').strip()
+    selected_image=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(int(selected_id),user['id'])).fetchone() if selected_id.isdigit() else None
+    return render_template('my_edits_studio.html',user=user,images=images,selected_image=selected_image,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_edits_uses'] or 0))
+
+@bp.post('/my-stuff/image')
+def my_stuff_image_upload():
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    f=request.files.get('image'); operation=request.form.get('operation','clean')
+    if not f or not f.filename: flash('Choose an image first.','error'); return redirect(url_for('public.my_stuff_edits_studio'))
+    if operation not in {'clean','grayscale','web'}: operation='clean'
+    new_id=None
+    try:
+        from PIL import Image, ImageOps
+        raw=f.read(); from io import BytesIO
+        source=Image.open(BytesIO(raw)); source.verify(); source=Image.open(BytesIO(raw)).convert('RGB'); source=ImageOps.exif_transpose(source)
+        if operation=='grayscale': source=ImageOps.grayscale(source).convert('RGB')
+        elif operation=='web': source.thumbnail((1600,1600), Image.Resampling.LANCZOS)
+        out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id'])); os.makedirs(stuff_dir,exist_ok=True); out_path=os.path.join(stuff_dir,out_name); source.save(out_path,'JPEG',quality=91,optimize=True)
+        logical=os.path.join('stuff',str(user['id']),out_name); db=get_db(); db.execute('INSERT INTO stuff_images(user_id,original_name,filename,operation,created_at) VALUES(?,?,?,?,?)',(user['id'],f.filename,logical,operation,now())); db.commit(); flash('Image processed. Metadata has been removed from the new file.','success')
+    except Exception: flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
+    return redirect(url_for('public.my_stuff_edits_studio', image=int(new_id)) if new_id else url_for('public.my_stuff_edits_studio'))
+
+@bp.get('/my-stuff/image/<int:image_id>')
+def my_stuff_image(image_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    row=get_db().execute('SELECT * FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone()
+    if not row: abort(404)
+    path=os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']); return send_file(path,as_attachment=True,download_name='open-road-'+os.path.basename(path),mimetype='image/jpeg')
+
+@bp.post('/my-stuff/image/<int:image_id>/delete')
+def my_stuff_image_delete(image_id):
+    user=_current_user_for_stuff()
+    if not user: abort(403)
+    db=get_db(); row=db.execute('SELECT filename FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])).fetchone(); db.execute('DELETE FROM stuff_images WHERE id=? AND user_id=?',(image_id,user['id'])); db.commit()
+    if row:
+        try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']))
+        except OSError: pass
+    flash('Image history item deleted.','success'); return redirect(url_for('public.my_stuff_edits_studio'))
+
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)
 
@@ -236,7 +1458,8 @@ def account():
     suggestions=db.execute("SELECT * FROM trips WHERE status='published' ORDER BY date LIMIT 6").fetchall()
     posts=db.execute('SELECT * FROM posts WHERE published=1 ORDER BY id DESC LIMIT 5').fetchall()
     service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id WHERE sr.user_id=? ORDER BY sr.id DESC',(u['id'],)).fetchall()
-    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts,service_requests=service_requests)
+    event_tickets=db.execute("SELECT t.*,e.title event_title,e.event_date FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.attendee_user_id=? ORDER BY t.id DESC",(u['id'],)).fetchall()
+    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts,service_requests=service_requests,event_tickets=event_tickets)
 
 @bp.route('/contact',methods=['GET','POST'])
 def contact():
@@ -294,6 +1517,20 @@ def join():
     qr=make_qr_bytes(target)
     return render_template('join.html', target=target, qr=qr)
 
+@bp.get('/sw.js')
+def service_worker():
+    resp = send_from_directory(current_app.static_folder, 'sw.js', mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
 @bp.get('/manifest.json')
 def manifest():
-    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+    return jsonify(name=current_app.config['BRAND_NAME'],short_name='Open Road',start_url='/',scope='/',display='standalone',theme_color='#12212b',background_color='#fbf6ea',orientation='portrait-primary',categories=['travel','lifestyle','utilities'],icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}])
+
+@bp.get('/offline')
+def offline_app():
+    return render_template('offline_app.html')
+
+@bp.get('/offline/my-stuff')
+def offline_my_stuff():
+    return render_template('offline_my_stuff.html')

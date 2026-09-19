@@ -2,7 +2,7 @@
 <div class="color-cards-app">
   <header class="cc-top">
     <a href="{{ url_for('public.my_stuff') }}" class="cc-back">My Stuff</a>
-    <div class="cc-title"><span>MY LITTLE DESIGN SPACE</span><h1>My Color Cards</h1></div>
+    <div class="cc-title"><span>MY LITTLE DESIGN SPACE</span><h1>My Cards</h1></div>
     <button type="button" class="cc-menu" onclick="document.body.classList.toggle('cc-drawer-open')">Saved</button>
   </header>
 
@@ -20,7 +20,7 @@
   </aside>
 
   <main class="cc-main">
-    {% if card_locked %}<section class="cc-lock"><div class="cc-lock-mark">✦</div><span>MY COLOR CARDS</span><h2>Keep your little design space yours.</h2><p>You have made a few cards already. Create your Open Road ID once and keep making them without losing the cards you already have.</p><button type="button" onclick="document.getElementById('ccIdPanel').showModal()">Create Open Road ID</button></section>{% else %}
+    {% if card_locked %}<section class="cc-lock"><div class="cc-lock-mark">✦</div><span>MY CARDS</span><h2>Keep your little design space yours.</h2><p>You have made a few cards already. Create your Open Road ID once and keep making them without losing the cards you already have.</p><button type="button" onclick="document.getElementById('ccIdPanel').showModal()">Create Open Road ID</button></section>{% else %}
     <section class="cc-hero">
       <div><span class="eyebrow">A CARD THAT FEELS LIKE YOU</span><h2>Make something bright, soft, bold or beautifully weird.</h2><p>Everything updates live. Nothing gets trapped behind a stiff control panel.</p></div>
       <button type="button" class="cc-surprise" onclick="ccSurprise()">Surprise me ✦</button>

@@ -2,7 +2,7 @@
 {% block content %}
 <section class="scanner-page">
   <div class="scanner-header">
-    <div><div class="eyebrow">STAFF SCANNER</div><h1>{{ event.title }}</h1><p>{{ event.event_date or 'TBA' }} · {{ event.venue or 'Venue TBA' }}</p></div>
+    <div><div class="eyebrow">STAFF SCANNER · {{ scanner_name }}</div><h1>{{ event.title }}</h1><p>{{ event.event_date or 'TBA' }} · {{ event.venue or 'Venue TBA' }}</p></div>
     <div><form method="post" action="{{ url_for('public.staff_scanner_exit') }}"><button class="button secondary small">Close scanner</button></form></div>
   </div>
   <div class="scanner-workspace">
@@ -41,7 +41,7 @@
     if(!row) return;
     row.classList.add('member-approved'); row.classList.remove('member-used');
     const badge=row.querySelector('.ticket-check'); badge.classList.remove('used'); badge.textContent='APPROVED';
-    setTimeout(()=>{ row.classList.remove('member-approved'); row.classList.add('member-used'); badge.classList.add('used'); badge.textContent='USED'; },30000);
+    setTimeout(()=>{ row.classList.remove('member-approved'); row.classList.add('member-used'); badge.classList.add('used'); badge.textContent='USED'; },900);
   }
   async function check(raw){
     try{
@@ -53,7 +53,7 @@
       const r=await fetch('/ticketing/scan/'+encodeURIComponent(code)+'?sig='+encodeURIComponent(sig)+'&ajax=1'); const j=await r.json();
       if(j.ok){
         result.hidden=false; state.textContent=j.grace?'APPROVED':'APPROVED'; state.className='scan-state approved'; tier.textContent=j.tier||'REGULAR'; tier.className='tier-badge '+(String(j.tier||'').toLowerCase()); name.textContent=j.name; guidance.textContent=j.guidance||'Entry approved.';
-        msg.textContent=j.grace?'Already approved. Next ticket.':'Entry approved. Next ticket.'; if(!j.grace) markApproved(j.ticket_id,j); lastCode=code;
+        msg.textContent=j.grace?'Already used — next ticket.':'Entry approved. Next ticket.'; if(navigator.vibrate) navigator.vibrate(j.grace?25:70); if(!j.grace) markApproved(j.ticket_id,j); lastCode=code;
       } else {
         result.hidden=false; state.textContent='NOT VALID'; state.className='scan-state invalid'; tier.textContent=''; name.textContent=''; guidance.textContent=j.reason||'Ticket not valid.'; msg.textContent=j.reason||'Ticket not valid.';
       }

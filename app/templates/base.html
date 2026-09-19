@@ -17,20 +17,16 @@
 <div class="road-menu" id="roadMenu" aria-hidden="true">
   <div class="road-menu-shade" onclick="toggleRoadMenu(false)"></div>
   <aside class="road-drawer">
-    <div class="drawer-top"><div><span class="eyebrow">OPEN ROAD</span><h2>What are we making happen?</h2></div><button class="drawer-close" onclick="toggleRoadMenu(false)" aria-label="Close menu">×</button></div>
-    <div class="drawer-note">Come for the road. Stay for the ideas.</div>
-    <nav class="drawer-list">
-      <a class="drawer-feature lime" href="{{ url_for('public.home') }}#trips" onclick="toggleRoadMenu(false)"><span>01</span><div><b>Road trips</b><small>Day escapes, weekends, wild plans</small></div></a>
-      <a class="drawer-feature aqua" href="{{ url_for('public.home') }}#places" onclick="toggleRoadMenu(false)"><span>02</span><div><b>Places to go</b><small>Get inspired before you decide</small></div></a>
-      <a class="drawer-feature orange" href="{{ url_for('public.services') }}" onclick="toggleRoadMenu(false)"><span>03</span><div><b>Birthday plans</b><small>We can plan it or ticket it</small></div></a>
-      <a class="drawer-feature pink" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>04</span><div><b>Weddings & celebrations</b><small>Guest lists, tickets, smooth entry</small></div></a>
-      <a class="drawer-feature blue" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>05</span><div><b>Graduations & campus</b><small>Big moments without messy logistics</small></div></a>
-      <a class="drawer-feature yellow" href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)"><span>06</span><div><b>Private events</b><small>Parties, launches, reunions, meetups</small></div></a>
-      <a class="drawer-feature teal" href="{{ url_for('public.services') }}#ticketing" onclick="toggleRoadMenu(false)"><span>07</span><div><b>Ticketing for your event</b><small>Let us handle digital passes & QR entry</small></div></a>
-      <a class="drawer-feature white" href="{{ url_for('public.services') }}#groups" onclick="toggleRoadMenu(false)"><span>08</span><div><b>Group retreats</b><small>Schools, teams, clubs and organisations</small></div></a>
-      <a class="drawer-feature white" href="{{ url_for('public.services') }}#support" onclick="toggleRoadMenu(false)"><span>09</span><div><b>Need an idea?</b><small>Tell us what you're trying to make happen</small></div></a>
+    <div class="drawer-top"><div><span class="eyebrow">OPEN ROAD</span><h2>Where are we going?</h2></div><button class="drawer-close" onclick="toggleRoadMenu(false)" aria-label="Close menu">×</button></div>
+    <div class="drawer-note">Five calm doors. Everything else lives inside them.</div>
+    <nav class="drawer-sections">
+      <details class="drawer-section" open><summary><span class="drawer-section-no">01</span><span><b>Road trips</b><small>Go somewhere worth remembering</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.home') }}#trips" onclick="toggleRoadMenu(false)">Explore trips</a><a href="{{ url_for('public.home') }}#places" onclick="toggleRoadMenu(false)">Places to go</a><a href="{{ url_for('public.search') }}" onclick="toggleRoadMenu(false)">Search the road</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">02</span><span><b>Private events</b><small>Birthdays, weddings, launches, reunions</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)">Plan an event</a><a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)">Event services</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">03</span><span><b>Ticketing system</b><small>Find, create or scan</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.ticketing_find') }}" onclick="toggleRoadMenu(false)">Find an event</a><a href="{{ url_for('public.ticketing_host') }}" onclick="toggleRoadMenu(false)">Create an event</a><a href="{{ url_for('public.staff_scanner') }}" onclick="toggleRoadMenu(false)">Scan ticket</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">04</span><span><b>Group retreats</b><small>Families, schools, colleagues, teams</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.group_retreats') }}" onclick="toggleRoadMenu(false)">Start a group plan</a><a href="{{ url_for('public.group_retreats') }}#how-it-works" onclick="toggleRoadMenu(false)">How groups work</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">05</span><span><b>My Stuff</b><small>Story, cards and saved references</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.my_stuff_journal') }}" onclick="toggleRoadMenu(false)">My Story</a><a href="{{ url_for('public.my_stuff_cards') }}" onclick="toggleRoadMenu(false)">My Cards</a><a href="{{ url_for('public.my_stuff_copy_paste') }}" onclick="toggleRoadMenu(false)">My Saves</a></div></details>
     </nav>
-    <div class="drawer-bottom">One place for the trip, the event and the tickets.</div>
+    <div class="drawer-bottom">One place for the road, the event and the little things you keep.</div>
   </aside>
 </div>
 <div class="pwa-note" id="pwaNote"><div><b>Take Open Road with you</b><span>Install it like an app for quicker access.</span></div><button id="pwaInstall">Install</button></div>
