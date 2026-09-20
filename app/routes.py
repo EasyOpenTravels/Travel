@@ -1058,15 +1058,15 @@ def my_stuff_journal_save():
     if mood not in _journal_moods(): mood='morning'
     if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
     clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
-    if not title or not body:
-        flash('Give your journal story a title and some words first.','error'); return redirect(url_for('public.my_stuff_journal'))
+    if not title:
+        title=datetime.now(timezone.utc).strftime('%d %B %Y')
     if entry_id:
         owned=db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?',(entry_id,user['id'])).fetchone()
         if not owned: abort(404)
         db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,segments_json=?,updated_at=? WHERE id=? AND user_id=?',(title,body,mood,clean_tags,cover_color,segments_json,now(),entry_id,user['id'])); saved_id=int(entry_id); msg='Journal story updated.'
     else:
         cur=db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',(user['id'],title,body,mood,clean_tags,cover_color,segments_json,now(),now())); saved_id=cur.lastrowid; msg='Journal story saved.'
-    db.commit(); flash(msg,'success'); return redirect(url_for('public.my_stuff_journal',entry=saved_id))
+    db.commit(); return redirect(url_for('public.my_stuff_journal',entry=saved_id))
 
 @bp.get('/my-stuff/journal/<int:entry_id>')
 def my_stuff_journal_view(entry_id):
@@ -1139,15 +1139,7 @@ def my_stuff_cards():
     qr_b64=base64.b64encode(make_qr_bytes(url_for('public.home',_external=True))).decode()
     return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=int(user['stuff_card_uses'] or 0),simple_id_exists=has_id,qr_b64=qr_b64)
 
-@bp.post('/my-stuff/card/save')
-def my_stuff_card_save():
-    return my_stuff_color_card_save()
-
-@bp.post('/my-stuff/color-card/save')
-def my_stuff_color_card_save():
-    user=_current_user_for_stuff()
-    if not user: return jsonify(ok=False,message='Workspace unavailable.'),403
-    if not _cards_allowed(user): return jsonify(ok=False,message='Create your Open Road ID to keep using My Cards.'),403
+def _save_color_card_record(user):
     f=request.form; db=get_db(); card_id=f.get('card_id','').strip(); title=f.get('title','').strip()[:100]; body=f.get('body','').strip()[:4000]
     color=f.get('color','yellow').strip().lower(); font=f.get('font_style','bold').strip().lower(); shape=f.get('shape_style','sticky').strip().lower(); bg=f.get('background_style','solid').strip().lower(); deco=f.get('decoration','spark').strip().lower(); custom_bg=f.get('custom_bg','').strip()[:20]; custom_text=f.get('custom_text','').strip()[:20]; align=f.get('text_align','left').strip().lower(); border=f.get('border_style','classic').strip().lower(); texture=f.get('texture_style','none').strip().lower(); accent=f.get('accent_color','').strip()[:20]; design=f.get('design_style','sunny').strip().lower(); format_style=f.get('format_style','square').strip().lower(); sig=1 if f.get('signature_enabled') in {'1','on','true'} else 0
     allowed_design={'sunny','editorial','poster','minimal','playful','night'}; allowed_colors={'lime','aqua','orange','pink','blue','yellow','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}; allowed_fonts={'bold','soft','hand','mono','serif','display','light','wide','typewriter','comic','caps','elegant'}; allowed_shapes={'sticky','rounded','cloud','ticket','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}; allowed_bg={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}; allowed_border={'classic','thin','dashed','double','none'}; allowed_format={'square','portrait','landscape'}; allowed_texture={'none','soft-dots','lines','grid','paper'}; allowed_align={'left','center','right'}
@@ -1162,16 +1154,54 @@ def my_stuff_color_card_save():
     if align not in allowed_align: align='left'
     try: scale=min(140,max(75,int(f.get('font_scale','100') or 100)))
     except ValueError: scale=100
-    if not title and not body: return jsonify(ok=False,message='Write something first.')
     if card_id:
         row=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
-        if not row: return jsonify(ok=False,message='That card is not yours.'),404
-        db.execute("""UPDATE stuff_cards SET title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,decoration=?,custom_bg=?,custom_text=?,text_align=?,font_scale=?,border_style=?,texture_style=?,accent_color=?,format_style=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?""",(title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,now(),card_id,user['id']))
+        if not row: raise ValueError('That card is not yours.')
+        db.execute("UPDATE stuff_cards SET title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,decoration=?,custom_bg=?,custom_text=?,text_align=?,font_scale=?,border_style=?,texture_style=?,accent_color=?,format_style=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?",(title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,now(),card_id,user['id']))
         saved_id=int(card_id)
     else:
-        cur=db.execute("""INSERT INTO stuff_cards(user_id,title,body,color,font_style,shape_style,design_style,background_style,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,accent_color,format_style,signature_enabled,qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(user['id'],title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,1,now(),now()))
+        cur=db.execute("INSERT INTO stuff_cards(user_id,title,body,color,font_style,shape_style,design_style,background_style,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,accent_color,format_style,signature_enabled,qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(user['id'],title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,1,now(),now()))
         saved_id=cur.lastrowid
-    db.commit(); return jsonify(ok=True,saved_id=saved_id,download_url=url_for('public.my_stuff_card_download',card_id=saved_id))
+    db.commit()
+    return int(saved_id)
+
+@bp.post('/my-stuff/card/save')
+def my_stuff_card_save():
+    return my_stuff_color_card_save()
+
+@bp.post('/my-stuff/color-card/save')
+def my_stuff_color_card_save():
+    user=_current_user_for_stuff()
+    if not user: return jsonify(ok=False,message='Workspace unavailable.'),403
+    if not _cards_allowed(user): return jsonify(ok=False,message='Cards are locked.'),403
+    try:
+        saved_id=_save_color_card_record(user)
+        return jsonify(ok=True,saved_id=saved_id,download_url=url_for('public.my_stuff_card_download',card_id=saved_id))
+    except Exception as exc:
+        try: get_db().rollback()
+        except Exception: pass
+        current_app.logger.exception('My Card save failed')
+        return jsonify(ok=False,message=str(exc) or 'Could not save the card.'),500
+
+@bp.post('/my-stuff/color-card/save-and-png')
+def my_stuff_card_save_png():
+    user=_current_user_for_stuff()
+    if not user: return jsonify(ok=False,message='Workspace unavailable.'),403
+    if not _cards_allowed(user): return jsonify(ok=False,message='Cards are locked.'),403
+    try:
+        saved_id=_save_color_card_record(user)
+        row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(saved_id,user['id'])).fetchone()
+        image=_card_export_canvas(row,bool(row['signature_enabled'] if 'signature_enabled' in row.keys() else 0),url_for('public.home',_external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
+        out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
+        safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title'] or 'quick-card').strip('-')[:55] or 'quick-card'
+        resp=send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+        resp.headers['Cache-Control']='no-store, max-age=0'; resp.headers['X-Card-Saved']=str(saved_id)
+        return resp
+    except Exception as exc:
+        try: get_db().rollback()
+        except Exception: pass
+        current_app.logger.exception('My Card save-and-png failed')
+        return jsonify(ok=False,message=str(exc) or 'Could not create the PNG.'),500
 
 @bp.post('/my-stuff/color-card/<int:card_id>/delete')
 def my_stuff_color_card_delete(card_id):
@@ -1360,12 +1390,12 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
         if cur: lines.append(cur)
         return lines[:max_lines]
 
-    title=card['title'] or 'Untitled card'; body=card['body'] or ''
+    title=(card['title'] or '').strip(); body=(card['body'] or '').strip()
     title_font=load_font(font_style,92 if fmt=='square' else 88)
     body_font=load_font('soft' if font_style not in {'serif','elegant','mono','typewriter'} else font_style,44)
     maxw=W-220
-    title_lines=wrap(title,title_font,maxw,4)
-    body_lines=wrap(body,body_font,int(maxw*.86),8)
+    title_lines=wrap(title,title_font,maxw,4) if title else []
+    body_lines=wrap(body,body_font,int(maxw*.86),8) if body else []
     align=(card['text_align'] if 'text_align' in card.keys() else 'left') or 'left'
     title_y=250
     # Keep enough air above the footer on portrait and landscape cards.
@@ -1375,7 +1405,7 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
     if not body_lines: body_lines=[]
     if body_y > H-360:
         title_font=load_font(font_style,76 if fmt=='square' else 74)
-        title_lines=wrap(title,title_font,maxw,4)
+        title_lines=wrap(title,title_font,maxw,4) if title else []
         title_h=d.textbbox((0,0),'Ag',font=title_font)[3]
         body_y=title_y + len(title_lines)*(title_h+10) + 18
 
@@ -1388,7 +1418,7 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
             d.text((x,y),line,font=font,fill=fill)
             y += spacing
         return y
-    y=draw_lines(title_lines,title_font,title_y,title_h+8,maxw,ink_rgb)
+    y=draw_lines(title_lines,title_font,title_y,title_h+8,maxw,ink_rgb) if title_lines else title_y
     if body_lines: draw_lines(body_lines,body_font,y+4,max(52,d.textbbox((0,0),'Ag',font=body_font)[3]+12),int(maxw*.86),ink_rgb)
 
     # Accent mark + footer.
@@ -1438,7 +1468,9 @@ def my_stuff_card_download(card_id):
     image=_card_export_canvas(card,include,url_for('public.home', _external=True),current_app.config.get('BRAND_NAME','Open Road Adventures'))
     out=BytesIO(); image.save(out,'PNG',optimize=True); out.seek(0)
     safe=re.sub(r'[^a-zA-Z0-9_-]+','-',row['title']).strip('-')[:55] or 'quick-card'
-    return send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+    resp=send_file(out,mimetype='image/png',as_attachment=True,download_name=f'open-road-{safe}.png')
+    resp.headers['Cache-Control']='no-store, max-age=0'
+    return resp
 
 @bp.post('/my-stuff/card/<int:card_id>/delete')
 def my_stuff_card_delete(card_id):
@@ -1457,12 +1489,39 @@ def my_stuff_copy_paste():
     user=_stuff_use_and_context(user,'stuff_copy_uses')
     db=get_db(); copies=db.execute('SELECT * FROM saved_copies WHERE user_id=? AND id IN (SELECT MAX(id) FROM saved_copies WHERE user_id=? GROUP BY label,value) ORDER BY updated_at DESC,id DESC',(user['id'],user['id'])).fetchall()
     edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
-    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_copy_uses'] or 0))
+    saves_id_enabled=bool(user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0)
+    saves_unlocked=(not saves_id_enabled) or session.get('saves_unlocked_user')==user['id']
+    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),saves_id_enabled=saves_id_enabled,saves_unlocked=saves_unlocked,use_count=int(user['stuff_copy_uses'] or 0))
+
+@bp.post('/my-stuff/saves/unlock')
+def my_stuff_saves_unlock():
+    user=_current_user_for_stuff(); value=request.form.get('simple_id','').strip()
+    if not user: abort(403)
+    if not (user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0):
+        session['saves_unlocked_user']=user['id']; return redirect(url_for('public.my_stuff_copy_paste'))
+    secret=_global_simple_id_hash(user)
+    if secret and verify_pin(secret,value):
+        session['saves_unlocked_user']=user['id']; return redirect(url_for('public.my_stuff_copy_paste'))
+    flash('That Open Road ID is not correct.','error'); return redirect(url_for('public.my_stuff_copy_paste'))
+
+@bp.post('/my-stuff/saves/security')
+def my_stuff_saves_security():
+    user=_current_user_for_stuff(); action=request.form.get('action','').strip().lower(); db=get_db()
+    if action=='enable':
+        if not _stuff_id_ready(user):
+            flash('Create your Open Road ID first, then My Saves can use it.','error')
+        else:
+            db.execute('UPDATE users SET saves_id_enabled=1 WHERE id=?',(user['id'],)); db.commit(); session['saves_unlocked_user']=user['id']; flash('My Saves ID protection is on.','success')
+    elif action=='disable':
+        db.execute('UPDATE users SET saves_id_enabled=0 WHERE id=?',(user['id'],)); db.commit(); session.pop('saves_unlocked_user',None); flash('My Saves ID protection is off.','success')
+    return redirect(url_for('public.my_stuff_copy_paste'))
 
 @bp.post('/my-stuff/copy/save')
 def my_stuff_copy_save():
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if (user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0) and session.get('saves_unlocked_user')!=user['id']:
+        return redirect(url_for('public.my_stuff_copy_paste'))
     db=get_db(); item_id=request.form.get('item_id','').strip(); label=request.form.get('label','').strip()[:80]; value=request.form.get('value','').strip(); note=request.form.get('note','').strip()[:240]
     if not label or not value: flash('Add a name and the number or code you want to keep.','error'); return redirect(url_for('public.my_stuff_copy_paste'))
     if item_id:
@@ -1479,6 +1538,8 @@ def my_stuff_copy_save():
 def my_stuff_copy_paste_download():
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if (user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0) and session.get('saves_unlocked_user')!=user['id']:
+        return redirect(url_for('public.my_stuff_copy_paste'))
     rows=get_db().execute('SELECT label,value,note FROM saved_copies WHERE user_id=? ORDER BY label COLLATE NOCASE,id',(user['id'],)).fetchall()
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -1494,6 +1555,8 @@ def my_stuff_copy_paste_download():
 def my_stuff_copy_delete(item_id):
     user=_current_user_for_stuff()
     if not user: abort(403)
+    if (user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0) and session.get('saves_unlocked_user')!=user['id']:
+        return redirect(url_for('public.my_stuff_copy_paste'))
     db=get_db(); db.execute('DELETE FROM saved_copies WHERE id=? AND user_id=?',(item_id,user['id'])); db.commit(); flash('Saved item deleted.','success'); return redirect(url_for('public.my_stuff_copy_paste'))
 
 @bp.get('/my-stuff/edits-studio')

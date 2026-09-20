@@ -41,7 +41,7 @@
         <div class="cc-preview-actions"><button type="button" onclick="ccSave('save')" class="primary">Save</button><button type="button" onclick="ccSave('png')" class="secondary">Save + PNG</button></div>
       </div>
 
-      <form id="ccForm" class="cc-controls" method="post" action="{{ url_for('public.my_stuff_color_card_save') }}" onsubmit="return false">
+      <form id="ccForm" class="cc-controls" method="post" action="{{ url_for('public.my_stuff_color_card_save') }}" data-png-action="{{ url_for('public.my_stuff_card_save_png') }}" onsubmit="return false">
         <input type="hidden" id="ccId" name="card_id">
         <div class="cc-textbox">
           <div class="cc-section-head"><div><span>WORDS</span><strong>Say the thing.</strong></div><div class="cc-mode"><button type="button" class="active" data-cc-mode="topic" onclick="ccMode('topic')">Topic</button><button type="button" data-cc-mode="body" onclick="ccMode('body')">Body</button></div></div>
@@ -102,7 +102,7 @@ document.body.classList.add('personal-route-body','color-cards-body');
   window.ccSet=function(k,v){if(k==='color')S.color=v;if(k==='font')S.font=v;if(k==='shape')S.shape=v;if(k==='background')S.background=v;if(k==='customBg'){S.customBg=v;S.background='solid';}if(k==='customText')S.customText=v;if(k==='align')S.align=v;if(k==='size')S.size=v;if(k==='border')S.border=v;if(k==='texture')S.texture=v;if(k==='accent')S.accent=v;if(k==='format')S.format=v;if(k==='design')S.design=v;ccPaint()};
   function sync(){if(S.mode==='topic')S.topic=text.value;else S.body=text.value;document.getElementById('ccWordState').textContent=(text.value||'').length+' characters';document.getElementById('ccSizeOut').textContent=S.size+'%';}
   function markActive(){document.querySelectorAll('.cc-swatch').forEach(b=>b.classList.toggle('active',b.dataset.color===S.color));document.querySelectorAll('.cc-chip').forEach(b=>{b.classList.toggle('active',b.dataset.shape===S.shape||b.dataset.bg===S.background||b.dataset.font===S.font||b.dataset.texture===S.texture||b.dataset.format===S.format||b.dataset.design===S.design||b.textContent.trim().toLowerCase()===S.format)});}
-  window.ccPaint=function(){sync();const title=S.topic.trim(),body=S.body.trim();preview.className='cc-card '+S.color+' '+S.font+' '+S.shape+' '+S.design+' '+S.background+' '+S.align+' border-'+S.border+' texture-'+S.texture+' format-'+S.format+(title&&!body?' title-only':'')+(!title&&body?' body-only':'')+(S.customText?' custom-text':'')+(S.customBg&&S.background==='solid'?' custom-solid':'');preview.style.setProperty('--cc-custom-bg',S.customBg||'#ffe06a');preview.style.setProperty('--cc-custom-text',S.customText||'');preview.style.setProperty('--cc-scale',(Number(S.size||100)/100).toFixed(2));outT.textContent=title||'Your little idea';outB.textContent=body||'Write something worth keeping.';outA.textContent=deco[S.accent]||'';outA.classList.toggle('blue-accent',blue.has(S.accent));document.querySelector('.cc-brand').style.display=S.signature?'block':'none';document.querySelector('.cc-qr').style.display='grid';document.getElementById('ccState').textContent=(title||body)?'Unsaved changes':'Ready';markActive();} ;
+  window.ccPaint=function(){sync();const title=S.topic.trim(),body=S.body.trim();preview.className='cc-card '+S.color+' '+S.font+' '+S.shape+' '+S.design+' '+S.background+' '+S.align+' border-'+S.border+' texture-'+S.texture+' format-'+S.format+(title&&!body?' title-only':'')+(!title&&body?' body-only':'')+(!title&&!body?' empty':'')+(S.customText?' custom-text':'')+(S.customBg&&S.background==='solid'?' custom-solid':'');preview.style.setProperty('--cc-custom-bg',S.customBg||'#ffe06a');preview.style.setProperty('--cc-custom-text',S.customText||'');preview.style.setProperty('--cc-scale',(Number(S.size||100)/100).toFixed(2));outT.textContent=title;outB.textContent=body;outA.textContent=deco[S.accent]||'';outA.classList.toggle('blue-accent',blue.has(S.accent));document.querySelector('.cc-brand').style.display=S.signature?'block':'none';document.querySelector('.cc-qr').style.display='grid';document.getElementById('ccState').textContent=(title||body)?'Unsaved changes':'Ready';markActive();} ;
   window.ccNew=function(){Object.assign(S,{id:'',topic:'',body:'',color:'yellow',font:'bold',shape:'sticky',design:'sunny',background:'solid',accent:'spark',customBg:'',customText:'',align:'left',size:'100',border:'classic',texture:'none',signature:false,qr:true,mode:'topic',format:'square'});text.value='';document.getElementById('ccId').value='';document.getElementById('ccSize').value='100';document.getElementById('ccSig').checked=false;document.querySelectorAll('[data-cc-mode]').forEach(b=>b.classList.toggle('active',b.dataset.ccMode==='topic'));ccPaint();text.focus();document.body.classList.remove('cc-drawer-open')};
   window.ccLoad=function(id,title,body,color,font,shape,design,background,accent,customBg,customText,accentColor,align,size,border,texture,format,signature){S.id=id;S.topic=title||'';S.body=body||'';S.color=color||'yellow';S.font=font||'bold';S.shape=shape||'sticky';S.design=design||'sunny';S.background=background||'solid';S.accent=accent||'spark';S.customBg=customBg||'';S.customText=customText||'';S.align=align||'left';S.size=size||'100';S.border=border||'classic';S.texture=texture||'none';S.format=format||'square';S.signature=String(signature||'0')==='1';S.mode=S.topic?'topic':'body';text.value=val(S.mode);document.getElementById('ccId').value=id;document.getElementById('ccSize').value=S.size;document.getElementById('ccSig').checked=S.signature;document.querySelectorAll('[data-cc-mode]').forEach(b=>b.classList.toggle('active',b.dataset.ccMode===S.mode));ccPaint();document.body.classList.remove('cc-drawer-open');text.focus()};
   const presets={
@@ -123,12 +123,37 @@ document.body.classList.add('personal-route-body','color-cards-body');
     try{sessionStorage.setItem('openroad-card-surprises',JSON.stringify(history))}catch(_){}
     ccPaint();text.focus();
   };
-  window.ccSave=async function(kind){sync();const title=S.topic.trim(),body=S.body.trim();if(!title&&!body){text.focus();document.getElementById('ccState').textContent='Write something first';return}const form=new FormData();form.set('card_id',S.id);form.set('title',title);form.set('body',body);form.set('color',S.color);form.set('font_style',S.font);form.set('shape_style',S.shape);form.set('design_style',S.design);form.set('background_style',S.background);form.set('decoration',S.accent);form.set('custom_bg',S.customBg||'');form.set('custom_text',S.customText||'');form.set('text_align',S.align);form.set('font_scale',S.size);form.set('border_style',S.border);form.set('texture_style',S.texture);form.set('format_style',S.format);form.set('signature_enabled',S.signature?'1':'0');form.set('after_save',kind==='png'?'png':'color-cards');try{const r=await fetch(document.getElementById('ccForm').action,{method:'POST',body:form,headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});const j=await r.json();if(!j.ok)throw new Error(j.message||'Could not save');S.id=j.saved_id;document.getElementById('ccId').value=S.id;document.getElementById('ccState').textContent='Saved ✓';if(kind==='png'&&j.download_url){
-      document.getElementById('ccState').textContent='Saved ✓ Preparing PNG…';
-      // Let the server's attachment response handle the actual mobile/desktop download.
-      // This is more reliable than programmatic blob downloads inside PWA browsers.
-      window.location.assign(j.download_url + (j.download_url.includes('?')?'&':'?') + '_download=1&t=' + Date.now());
-    }else{setTimeout(()=>location.reload(),350)}}catch(e){document.getElementById('ccState').textContent=e.message||'Could not save'}};
+  async function ccExactPng(){
+    await document.fonts?.ready;
+    const source=document.getElementById('ccPreview'); const w=source.offsetWidth, h=source.offsetHeight;
+    if(!w||!h) throw new Error('Card preview is not ready yet.');
+    const clone=source.cloneNode(true); clone.removeAttribute('id'); clone.style.transform='none'; clone.style.width=w+'px'; clone.style.height=h+'px'; clone.style.maxWidth='none'; clone.style.margin='0';
+    clone.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));
+    const link=document.querySelector('link[href*="style.css"]'); const css=link?await fetch(link.href,{credentials:'same-origin'}).then(r=>r.text()):'';
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>'+css.replace(/<\/style/gi,'<\\/style')+'</style>'+clone.outerHTML+'</div></foreignObject></svg>';
+    const svgUrl=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml;charset=utf-8'}));
+    try{const img=await new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=()=>reject(new Error('Preview export failed.'));im.src=svgUrl});const scale=2;const canvas=document.createElement('canvas');canvas.width=w*scale;canvas.height=h*scale;const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.drawImage(img,0,0,canvas.width,canvas.height);const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('PNG creation failed.')),'image/png',1));return blob}finally{URL.revokeObjectURL(svgUrl)}}
+
+  function ccTriggerDownload(blob,filename){const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=filename;a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),30000)}
+
+  window.ccSave=async function(kind){
+    sync(); const title=S.topic.trim(),body=S.body.trim();
+    const form=new FormData(); form.set('card_id',S.id); form.set('title',title); form.set('body',body); form.set('color',S.color); form.set('font_style',S.font); form.set('shape_style',S.shape); form.set('design_style',S.design); form.set('background_style',S.background); form.set('decoration',S.accent); form.set('custom_bg',S.customBg||''); form.set('custom_text',S.customText||''); form.set('text_align',S.align); form.set('font_scale',S.size); form.set('border_style',S.border); form.set('texture_style',S.texture); form.set('format_style',S.format); form.set('signature_enabled',S.signature?'1':'0');
+    const saveUrl=document.getElementById('ccForm').action,pngUrl=document.getElementById('ccForm').dataset.pngAction,status=document.getElementById('ccState');
+    try{
+      status.textContent=kind==='png'?'Saving + preparing PNG…':'Saving…';
+      const r=await fetch(saveUrl,{method:'POST',body:form,credentials:'same-origin',headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
+      const raw=await r.text();let j;try{j=JSON.parse(raw)}catch(_){throw new Error(raw.slice(0,120)||'Could not save the card.')}
+      if(!r.ok||!j.ok)throw new Error(j.message||'Could not save the card.');
+      S.id=j.saved_id;document.getElementById('ccId').value=S.id;
+      if(kind==='png'){
+        try{const blob=await ccExactPng();const safe=(title||'quick-card').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,55)||'quick-card';ccTriggerDownload(blob,'open-road-'+safe+'.png');status.textContent='Saved ✓ PNG downloaded';}
+        catch(primary){const fallback=await fetch(pngUrl,{method:'POST',body:form,credentials:'same-origin',headers:{Accept:'image/png'}});if(!fallback.ok)throw primary;const blob=await fallback.blob();const safe=(title||'quick-card').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,55)||'quick-card';ccTriggerDownload(blob,'open-road-'+safe+'.png');status.textContent='Saved ✓ PNG downloaded';}
+        setTimeout(()=>location.reload(),900);return;
+      }
+      status.textContent='Saved ✓';setTimeout(()=>location.reload(),450);
+    }catch(e){status.textContent=e.message||'Could not save the card.'}
+  };
   text.addEventListener('input',ccPaint);ccPaint();
 })();
 </script>
