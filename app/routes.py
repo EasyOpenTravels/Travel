@@ -1149,8 +1149,8 @@ def my_stuff_color_card_save():
     if not user: return jsonify(ok=False,message='Workspace unavailable.'),403
     if not _cards_allowed(user): return jsonify(ok=False,message='Create your Open Road ID to keep using My Cards.'),403
     f=request.form; db=get_db(); card_id=f.get('card_id','').strip(); title=f.get('title','').strip()[:100]; body=f.get('body','').strip()[:4000]
-    color=f.get('color','yellow').strip().lower(); font=f.get('font_style','bold').strip().lower(); shape=f.get('shape_style','sticky').strip().lower(); bg=f.get('background_style','solid').strip().lower(); deco=f.get('decoration','spark').strip().lower(); custom_bg=f.get('custom_bg','').strip()[:20]; custom_text=f.get('custom_text','').strip()[:20]; align=f.get('text_align','left').strip().lower(); border=f.get('border_style','classic').strip().lower(); texture=f.get('texture_style','none').strip().lower(); accent=f.get('accent_color','').strip()[:20]; design=f.get('design_style','sunny').strip().lower(); sig=1 if f.get('signature_enabled') in {'1','on','true'} else 0
-    allowed_design={'sunny','editorial','poster','minimal','playful','night'}; allowed_colors={'lime','aqua','orange','pink','blue','yellow','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}; allowed_fonts={'bold','soft','hand','mono','serif','display','light','wide','typewriter','comic','caps','elegant'}; allowed_shapes={'sticky','rounded','cloud','ticket','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}; allowed_bg={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}; allowed_border={'classic','thin','dashed','double','none'}; allowed_texture={'none','soft-dots','lines','grid','paper'}; allowed_align={'left','center','right'}
+    color=f.get('color','yellow').strip().lower(); font=f.get('font_style','bold').strip().lower(); shape=f.get('shape_style','sticky').strip().lower(); bg=f.get('background_style','solid').strip().lower(); deco=f.get('decoration','spark').strip().lower(); custom_bg=f.get('custom_bg','').strip()[:20]; custom_text=f.get('custom_text','').strip()[:20]; align=f.get('text_align','left').strip().lower(); border=f.get('border_style','classic').strip().lower(); texture=f.get('texture_style','none').strip().lower(); accent=f.get('accent_color','').strip()[:20]; design=f.get('design_style','sunny').strip().lower(); format_style=f.get('format_style','square').strip().lower(); sig=1 if f.get('signature_enabled') in {'1','on','true'} else 0
+    allowed_design={'sunny','editorial','poster','minimal','playful','night'}; allowed_colors={'lime','aqua','orange','pink','blue','yellow','teal','white','red','purple','navy','mint','rose','coral','sky','ink','peach','lemon','violet','sand','cyan','magenta'}; allowed_fonts={'bold','soft','hand','mono','serif','display','light','wide','typewriter','comic','caps','elegant'}; allowed_shapes={'sticky','rounded','cloud','ticket','note','arch','diagonal','pill','flag','slant','polygon','ticketwide','wavy','stamp','circle','bubble','softbox','diary'}; allowed_bg={'solid','clean','gradient','sunset','ocean','paper','grid','dots','aurora','dark','cream','lavender','mintwash'}; allowed_border={'classic','thin','dashed','double','none'}; allowed_format={'square','portrait','landscape'}; allowed_texture={'none','soft-dots','lines','grid','paper'}; allowed_align={'left','center','right'}
     if design not in allowed_design: design='sunny'
     if color not in allowed_colors: color='yellow'
     if font not in allowed_fonts: font='bold'
@@ -1158,6 +1158,7 @@ def my_stuff_color_card_save():
     if bg not in allowed_bg: bg='solid'
     if border not in allowed_border: border='classic'
     if texture not in allowed_texture: texture='none'
+    if format_style not in allowed_format: format_style='square'
     if align not in allowed_align: align='left'
     try: scale=min(140,max(75,int(f.get('font_scale','100') or 100)))
     except ValueError: scale=100
@@ -1165,10 +1166,10 @@ def my_stuff_color_card_save():
     if card_id:
         row=db.execute('SELECT id FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
         if not row: return jsonify(ok=False,message='That card is not yours.'),404
-        db.execute("""UPDATE stuff_cards SET title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,decoration=?,custom_bg=?,custom_text=?,text_align=?,font_scale=?,border_style=?,texture_style=?,accent_color=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?""",(title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,sig,now(),card_id,user['id']))
+        db.execute("""UPDATE stuff_cards SET title=?,body=?,color=?,font_style=?,shape_style=?,design_style=?,background_style=?,decoration=?,custom_bg=?,custom_text=?,text_align=?,font_scale=?,border_style=?,texture_style=?,accent_color=?,format_style=?,signature_enabled=?,updated_at=? WHERE id=? AND user_id=?""",(title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,now(),card_id,user['id']))
         saved_id=int(card_id)
     else:
-        cur=db.execute("""INSERT INTO stuff_cards(user_id,title,body,color,font_style,shape_style,design_style,background_style,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,accent_color,signature_enabled,qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(user['id'],title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,sig,1,now(),now()))
+        cur=db.execute("""INSERT INTO stuff_cards(user_id,title,body,color,font_style,shape_style,design_style,background_style,decoration,custom_bg,custom_text,text_align,font_scale,border_style,texture_style,accent_color,format_style,signature_enabled,qr_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(user['id'],title,body,color,font,shape,design,bg,deco,custom_bg,custom_text,align,scale,border,texture,accent,format_style,sig,1,now(),now()))
         saved_id=cur.lastrowid
     db.commit(); return jsonify(ok=True,saved_id=saved_id,download_url=url_for('public.my_stuff_card_download',card_id=saved_id))
 
@@ -1177,99 +1178,243 @@ def my_stuff_color_card_delete(card_id):
     return my_stuff_card_delete(card_id)
 
 def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='Open Road Adventures'):
+    """Render a saved My Card as a real PNG, keeping the editor's main visual choices."""
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from io import BytesIO
-    import math, textwrap
+    from pathlib import Path
+    import random
+
     palettes = {
-        'lime': ('#e9f5a5','#12212a','#89b85e'), 'aqua': ('#bceee8','#12212a','#4baea3'),
-        'orange': ('#ffc68e','#12212a','#d47a40'), 'pink': ('#ffc5d5','#12212a','#d56c8d'),
-        'blue': ('#bcd7ff','#12212a','#4d79bd'), 'yellow': ('#ffe26e','#12212a','#c89e2a'),
-        'teal': ('#78d8c9','#12212a','#389b8e'), 'white': ('#ffffff','#12212a','#d8ddd9'),
+        'yellow': '#ffe26e', 'lime': '#e9f5a5', 'aqua': '#bceee8', 'orange': '#ffc68e',
+        'pink': '#ffc5d5', 'blue': '#bcd7ff', 'teal': '#78d8c9', 'white': '#ffffff',
+        'red': '#ffb6b6', 'purple': '#d7c2ff', 'navy': '#1e4050', 'mint': '#ccebdc',
+        'rose': '#efb1c5', 'coral': '#ffb39d', 'sky': '#c2e0ff', 'ink': '#172630',
+        'peach': '#ffd6b7', 'lemon': '#f4f3a2', 'violet': '#d7bfff', 'sand': '#e9dcc4',
+        'cyan': '#9de8ea', 'magenta': '#eeafd9'
     }
-    styles = {
-        'sunrise': ('rounded','offset'), 'editorial': ('paper','rule'), 'poster': ('blocks','frame'),
-        'minimal': ('minimal','line'), 'playful': ('blob','dots'), 'night': ('dark','glow')
+    ink = '#172630'
+    fmt = (card['format_style'] if 'format_style' in card.keys() else 'square') or 'square'
+    if fmt not in {'square','portrait','landscape'}: fmt='square'
+    W,H={'square':(1400,1400),'portrait':(1400,1750),'landscape':(1600,960)}[fmt]
+
+    def rgb(value):
+        value=(value or '').strip().lstrip('#')
+        if len(value)!=6: value='172630'
+        try: return tuple(int(value[i:i+2],16) for i in (0,2,4))
+        except ValueError: return (23,38,48)
+
+    base_name = (card['color'] or 'yellow').lower()
+    base = palettes.get(base_name, palettes['yellow'])
+    background_style=(card['background_style'] if 'background_style' in card.keys() else 'solid') or 'solid'
+    custom_bg=(card['custom_bg'] if 'custom_bg' in card.keys() else '') or ''
+    if custom_bg.startswith('#') and len(custom_bg) in (4,7): base=custom_bg
+    if background_style in {'clean'}: base='#ffffff'
+    elif background_style=='cream': base='#fbf6ea'
+    elif background_style=='lavender': base='#eadfff'
+    elif background_style=='mintwash': base='#e1f5eb'
+    elif background_style=='paper': base='#f6f0e1'
+    elif background_style=='dark': base='#172630'
+
+    img=Image.new('RGBA',(W,H),(0,0,0,0))
+
+    def lerp(a,b,t): return tuple(int(a[i]*(1-t)+b[i]*t) for i in range(3))+(255,)
+    bg1=rgb(base); bg2=rgb(palettes.get('blue','#bcd7ff'))
+    gradients={
+        'gradient':('#ffe26e','#ff99ba'), 'sunset':('#ffc68e','#ef9ab2'),
+        'ocean':('#bcd7ff','#8fd8d0'), 'aurora':('#d7c2ff','#9de5db')
     }
-    style_key = getattr(card, '_export_style', None) or 'sunrise'
-    seed = int(getattr(card, '_export_seed', 0) or 0)
-    bg, ink, accent = palettes.get(card['color'], palettes['lime'])
-    kind, deco = styles.get(style_key, styles['sunrise'])
-    if style_key == 'night': bg, ink, accent = '#10212a','#ffffff', palettes.get(card['color'], palettes['aqua'])[0]
-    W,H=1600,1000
-    img=Image.new('RGB',(W,H),bg); d=ImageDraw.Draw(img)
-    def hexrgb(x): x=x.lstrip('#'); return tuple(int(x[i:i+2],16) for i in (0,2,4))
-    bgc,inkc,accc=hexrgb(bg),hexrgb(ink),hexrgb(accent)
-    rng=__import__('random').Random(seed or card['id']*991)
-    # decorative geometry, deterministic per seed/style
-    if deco=='offset':
-        d.rounded_rectangle((42,42,W-42,H-42),radius=46,outline=inkc,width=6)
-        d.rounded_rectangle((90,90,W-90,H-90),radius=34,outline=accc,width=3)
-        for i in range(7):
-            x=rng.randint(120,W-220); y=rng.randint(110,H-300); r=rng.randint(18,60)
-            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
-    elif deco=='rule':
-        for y in (82,170): d.line((90,y,W-90,y),fill=inkc,width=3)
-        d.rectangle((90,185,220,255),fill=accc)
-    elif deco=='frame':
-        d.rectangle((55,55,W-55,H-55),outline=inkc,width=8)
-        d.rectangle((85,85,W-85,H-85),outline=accc,width=4)
-        for x in range(115,W-110,130): d.line((x,94,x+38,94),fill=accc,width=8)
-    elif deco=='line':
-        d.line((95,H-170,W-95,H-170),fill=accc,width=10)
-        d.line((95,170,620,170),fill=inkc,width=3)
-    elif deco=='dots':
-        for i in range(32):
-            x=rng.randint(70,W-70); y=rng.randint(60,H-170); r=rng.randint(4,11)
-            d.ellipse((x-r,y-r,x+r,y+r),fill=accc)
-    elif deco=='glow':
+    if background_style in gradients:
+        a,b=map(rgb,gradients[background_style])
+        lay=Image.new('RGBA',(W,H))
+        ld=ImageDraw.Draw(lay)
+        for y in range(H): ld.line((0,y,W,y),fill=lerp(a,b,y/max(1,H-1)))
+        bg_layer=lay
+    else:
+        bg_layer=Image.new('RGBA',(W,H),rgb(base)+(255,))
+
+    # Background texture / special grids.
+    bd=ImageDraw.Draw(bg_layer,'RGBA')
+    if background_style=='grid':
+        for x in range(0,W,34): bd.line((x,0,x,H),fill=(*rgb(ink),28),width=1)
+        for y in range(0,H,34): bd.line((0,y,W,y),fill=(*rgb(ink),28),width=1)
+    elif background_style=='dots':
+        for y in range(18,H,34):
+            for x in range(18,W,34): bd.ellipse((x-2,y-2,x+2,y+2),fill=(*rgb(ink),40))
+
+    texture=(card['texture_style'] if 'texture_style' in card.keys() else 'none') or 'none'
+    if texture=='soft-dots':
+        for y in range(20,H,28):
+            for x in range(20,W,28): bd.ellipse((x-1,y-1,x+1,y+1),fill=(*rgb(ink),24))
+    elif texture=='lines':
+        for y in range(0,H,18): bd.line((0,y,W,y),fill=(*rgb(ink),24),width=1)
+    elif texture=='grid':
+        for x in range(0,W,26): bd.line((x,0,x,H),fill=(*rgb(ink),22),width=1)
+        for y in range(0,H,26): bd.line((0,y,W,y),fill=(*rgb(ink),22),width=1)
+    elif texture=='paper':
+        rng=random.Random(int(card['id'] or 1)*17)
+        for _ in range(max(100, W*H//12000)):
+            x=rng.randrange(W); y=rng.randrange(H); bd.point((x,y),fill=(*rgb(ink),18))
+
+    shape=(card['shape_style'] if 'shape_style' in card.keys() else 'sticky') or 'sticky'
+    margin=26
+    mask=Image.new('L',(W,H),0)
+    md=ImageDraw.Draw(mask)
+    if shape in {'circle'}:
+        md.ellipse((margin,margin,W-margin,H-margin),fill=255)
+    elif shape in {'pill'}:
+        md.rounded_rectangle((margin,margin,W-margin,H-margin),radius=min(W,H)//2,fill=255)
+    elif shape in {'arch'}:
+        r=min(W//3,180); md.rounded_rectangle((margin,margin,W-margin,H-margin),radius=r,fill=255)
+    elif shape in {'cloud','wavy','bubble'}:
+        pts=[(margin+80,margin),(W-margin-90,margin),(W-margin,margin+110),(W-margin,H-margin-90),(W-margin-90,H-margin),(margin+90,H-margin),(margin,H-margin-100),(margin+45,H//2)]
+        md.polygon(pts,fill=255)
+    elif shape in {'flag','diagonal','slant','polygon','stamp'}:
+        if shape=='flag': pts=[(margin,margin),(W-margin,margin),(W-margin-80,H//2),(W-margin,H-margin),(margin,H-margin),(margin+80,H//2)]
+        elif shape in {'diagonal','slant'}: pts=[(margin+80,margin),(W-margin,margin),(W-margin-70,H-margin),(margin,H-margin)]
+        else: pts=[(margin+70,margin),(W-margin-70,margin),(W-margin,margin+70),(W-margin,H-margin-70),(W-margin-70,H-margin),(margin+70,H-margin),(margin,H-margin-70),(margin,margin+70)]
+        md.polygon(pts,fill=255)
+    else:
+        radius = 46 if shape in {'rounded','softbox','diary','ticket','note','sticky'} else 28
+        md.rounded_rectangle((margin,margin,W-margin,H-margin),radius=radius,fill=255)
+
+    card_layer=bg_layer
+    # A subtle shadow behind the card, only in the alpha outside the card face.
+    shadow=mask.filter(ImageFilter.GaussianBlur(20))
+    shadow_rgba=Image.new('RGBA',(W,H),(0,0,0,0))
+    shadow_rgba.putalpha(shadow.point(lambda p:int(p*.20)))
+    shadow_rgba=Image.new('RGBA',(W+18,H+18),(0,0,0,0)) if False else shadow_rgba
+    img.alpha_composite(shadow_rgba)
+    img.paste(card_layer,(0,0),mask)
+    d=ImageDraw.Draw(img,'RGBA')
+
+    ink_rgb=rgb(('#ffffff' if base_name in {'navy','ink'} or background_style=='dark' else (card['custom_text'] if 'custom_text' in card.keys() and card['custom_text'] else ink)))
+    accent_name=(card['accent_color'] if 'accent_color' in card.keys() else '') or ''
+    accent_rgb=rgb(accent_name or palettes.get(base_name,'#89b85e'))
+
+    border=(card['border_style'] if 'border_style' in card.keys() else 'classic') or 'classic'
+    outline_width={'classic':6,'thin':2,'double':5,'dashed':3,'none':0}.get(border,6)
+    if outline_width:
+        if shape=='circle': d.ellipse((margin,margin,W-margin,H-margin),outline=ink_rgb,width=outline_width)
+        else: d.rounded_rectangle((margin,margin,W-margin,H-margin),radius=46 if shape not in {'pill'} else min(W,H)//2,outline=ink_rgb,width=outline_width)
+        if border=='double':
+            inset=18
+            d.rounded_rectangle((margin+inset,margin+inset,W-margin-inset,H-margin-inset),radius=max(15,30),outline=accent_rgb,width=2)
+        elif border=='dashed':
+            for x in range(margin+20,W-margin-20,70):
+                d.line((x,margin,x+35,margin),fill=accent_rgb,width=3)
+                d.line((x,H-margin,x+35,H-margin),fill=accent_rgb,width=3)
+            for y in range(margin+20,H-margin-20,70):
+                d.line((margin,y,margin,y+35),fill=accent_rgb,width=3)
+                d.line((W-margin,y,W-margin,y+35),fill=accent_rgb,width=3)
+
+    design=(card['design_style'] if 'design_style' in card.keys() else 'sunny') or 'sunny'
+    if design=='sunny':
+        d.ellipse((W-260,65,W-120,205),fill=(*accent_rgb,100))
+        d.ellipse((W-205,120,W-175,150),fill=(*accent_rgb,170))
+    elif design=='editorial':
+        d.line((90,160,W-90,160),fill=ink_rgb,width=3)
+        d.line((90,182,W-310,182),fill=accent_rgb,width=6)
+    elif design=='poster':
+        d.rectangle((W-220,60,W-60,220),fill=(*accent_rgb,90))
+        d.rectangle((70,H-210,310,H-90),fill=(*accent_rgb,80))
+    elif design=='playful':
+        rng=random.Random(int(card['id'] or 1)*41)
+        for _ in range(7):
+            x=rng.randint(90,W-90); y=rng.randint(70,H-260); r=rng.randint(12,38)
+            d.ellipse((x-r,y-r,x+r,y+r),fill=(*accent_rgb,80))
+    elif design=='night':
         glow=Image.new('RGBA',(W,H),(0,0,0,0)); gd=ImageDraw.Draw(glow)
-        for _ in range(10):
-            x=rng.randint(50,W-50); y=rng.randint(50,H-220); r=rng.randint(80,230)
-            gd.ellipse((x-r,y-r,x+r,y+r),fill=accc+(40,))
-        glow=glow.filter(ImageFilter.GaussianBlur(25)); img=Image.alpha_composite(img.convert('RGBA'),glow).convert('RGB'); d=ImageDraw.Draw(img)
-    font_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf']
-    reg_paths=['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf']
-    def load(paths,size):
-        for fp in paths:
-            if Path(fp).exists(): return ImageFont.truetype(fp,size=size)
+        for x,y,r in [(W-190,140,150),(180,H-190,120)]: gd.ellipse((x-r,y-r,x+r,y+r),fill=(*accent_rgb,48))
+        glow=glow.filter(ImageFilter.GaussianBlur(35)); img.alpha_composite(glow); d=ImageDraw.Draw(img,'RGBA')
+    elif design=='minimal':
+        d.line((95,145,390,145),fill=accent_rgb,width=6)
+
+    font_scale=max(75,min(140,int(card['font_scale'] if 'font_scale' in card.keys() and card['font_scale'] else 100)))/100.0
+    font_style=(card['font_style'] if 'font_style' in card.keys() else 'bold') or 'bold'
+    font_dirs=[Path('/usr/share/fonts/truetype/dejavu'),Path('/usr/share/fonts/truetype/liberation2')]
+    def load_font(style,size):
+        size=max(14,int(size*font_scale))
+        names={
+            'bold':['DejaVuSans-Bold.ttf','LiberationSans-Bold.ttf'], 'soft':['DejaVuSans.ttf','LiberationSans-Regular.ttf'],
+            'hand':['DejaVuSans.ttf','LiberationSans-Regular.ttf'], 'mono':['DejaVuSansMono.ttf','LiberationMono-Regular.ttf'],
+            'serif':['LiberationSerif-Bold.ttf','DejaVuSerif-Bold.ttf'], 'elegant':['LiberationSerif-Regular.ttf','DejaVuSerif.ttf'],
+            'display':['DejaVuSans-Bold.ttf','LiberationSans-Bold.ttf'], 'light':['DejaVuSans.ttf','LiberationSans-Regular.ttf'],
+            'wide':['DejaVuSans-Bold.ttf','LiberationSans-Bold.ttf'], 'typewriter':['DejaVuSansMono.ttf','LiberationMono-Regular.ttf'],
+            'comic':['DejaVuSans-Bold.ttf','LiberationSans-Bold.ttf'], 'caps':['DejaVuSans-Bold.ttf','LiberationSans-Bold.ttf']
+        }
+        for directory in font_dirs:
+            for name in names.get(style,names['bold']):
+                fp=directory/name
+                if fp.exists(): return ImageFont.truetype(str(fp),size=size)
         return ImageFont.load_default()
-    f_label=load(font_paths,34); f_title=load(font_paths,92); f_body=load(reg_paths,44); f_small=load(reg_paths,24); f_brand=load(font_paths,26)
-    d.text((110,115),'OPEN ROAD · QUICK CARD',font=f_label,fill=inkc)
-    title=card['title'] or 'Untitled card'
-    body=card['body'] or ''
-    d.text((110,205),title,font=f_title,fill=inkc)
-    max_width=1240; lines=[]
-    words=body.split(); cur=''
-    for w in words:
-        test=(cur+' '+w).strip()
-        if d.textbbox((0,0),test,font=f_body)[2] <= max_width: cur=test
-        else:
-            if cur: lines.append(cur)
-            cur=w
-    if cur: lines.append(cur)
-    lines=lines[:7]
-    y=355
-    for line in lines:
-        d.text((110,y),line,font=f_body,fill=inkc); y+=62
-    # quiet footer marker
-    footer_y=H-125
-    d.line((110,footer_y-18,W-110,footer_y-18),fill=accc,width=4)
-    d.text((110,footer_y), 'KEEP THIS. SHARE THIS. MAKE IT YOURS.', font=f_small, fill=inkc)
-    if include_branding:
+
+    def wrap(text,font,max_width,max_lines):
+        words=(text or '').split(); lines=[]; cur=''
+        for word in words:
+            test=(cur+' '+word).strip()
+            if d.textbbox((0,0),test,font=font)[2] <= max_width: cur=test
+            else:
+                if cur: lines.append(cur)
+                cur=word
+                if len(lines)>=max_lines-1: break
+        if cur: lines.append(cur)
+        return lines[:max_lines]
+
+    title=card['title'] or 'Untitled card'; body=card['body'] or ''
+    title_font=load_font(font_style,92 if fmt=='square' else 88)
+    body_font=load_font('soft' if font_style not in {'serif','elegant','mono','typewriter'} else font_style,44)
+    maxw=W-220
+    title_lines=wrap(title,title_font,maxw,4)
+    body_lines=wrap(body,body_font,int(maxw*.86),8)
+    align=(card['text_align'] if 'text_align' in card.keys() else 'left') or 'left'
+    title_y=250
+    # Keep enough air above the footer on portrait and landscape cards.
+    title_gap=18
+    title_h=d.textbbox((0,0),'Ag',font=title_font)[3]
+    body_y=title_y + len(title_lines)*(title_h+title_gap) + 20
+    if not body_lines: body_lines=[]
+    if body_y > H-360:
+        title_font=load_font(font_style,76 if fmt=='square' else 74)
+        title_lines=wrap(title,title_font,maxw,4)
+        title_h=d.textbbox((0,0),'Ag',font=title_font)[3]
+        body_y=title_y + len(title_lines)*(title_h+10) + 18
+
+    def draw_lines(lines,font, y, spacing, max_width, fill):
+        for line in lines:
+            box=d.textbbox((0,0),line,font=font); tw=box[2]-box[0]
+            if align=='center': x=(W-tw)//2
+            elif align=='right': x=W-110-tw
+            else: x=110
+            d.text((x,y),line,font=font,fill=fill)
+            y += spacing
+        return y
+    y=draw_lines(title_lines,title_font,title_y,title_h+8,maxw,ink_rgb)
+    if body_lines: draw_lines(body_lines,body_font,y+4,max(52,d.textbbox((0,0),'Ag',font=body_font)[3]+12),int(maxw*.86),ink_rgb)
+
+    # Accent mark + footer.
+    symbols={'spark':'✦','sun':'☼','moon':'☾','heart':'♡','bird':'⌁','dots':'•••','none':'','verified':'✓','starblue':'★','checkblue':'✓','crownblue':'♛','diamond':'◆','bolt':'⚡','burst':'✹','seal':'●'}
+    symbol=symbols.get((card['decoration'] if 'decoration' in card.keys() else 'spark'),'✦')
+    if symbol:
+        afont=load_font('bold',56); d.text((W-170,95),symbol,font=afont,fill=accent_rgb)
+    footer_y=H-112
+    d.line((110,footer_y-20,W-110,footer_y-20),fill=accent_rgb,width=4)
+    if include_branding and 'signature_enabled' in card.keys() and int(card['signature_enabled'] or 0):
+        sf=load_font('bold',24)
+        d.text((110,footer_y+2),brand_name[:34],font=sf,fill=ink_rgb)
+
+    # QR is part of the ticket/card utility, independent from the optional site-name signature.
+    if 'qr_enabled' not in card.keys() or int(card['qr_enabled'] or 0):
         try:
             from .qr import make_qr_bytes
-            from PIL import Image as PILImage
-            qr_img=PILImage.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGB')
-            qr_img.thumbnail((145,145), PILImage.Resampling.LANCZOS)
-            qx,qy=W-285,footer_y-75
-            d.rounded_rectangle((qx-12,qy-12,qx+qr_img.width+12,qy+qr_img.height+12),radius=18,fill=(255,255,255))
-            img.paste(qr_img,(qx,qy))
-            d.rounded_rectangle((W-720,footer_y-38,W-315,footer_y+38),radius=26,fill=inkc)
-            brand_label=brand_name[:28]
-            d.text((W-680,footer_y-17),brand_label,font=load(font_paths,23),fill=bgc)
+            qr_img=Image.open(BytesIO(make_qr_bytes(qr_target or 'https://openroad.adventures'))).convert('RGBA')
+            qr_img.thumbnail((132,132),Image.Resampling.LANCZOS)
+            qx=W-110-qr_img.width; qy=footer_y-80
+            d.rounded_rectangle((qx-10,qy-10,qx+qr_img.width+10,qy+qr_img.height+10),radius=14,fill=(255,255,255,245))
+            img.alpha_composite(qr_img,(qx,qy))
         except Exception:
-            d.rounded_rectangle((W-560,footer_y-38,W-118,footer_y+38),radius=26,fill=inkc)
-            d.text((W-525,footer_y-17),brand_name[:28],font=load(font_paths,23),fill=bgc)
+            pass
+
+    # Export intentionally keeps transparent corners for non-rectangular shapes.
     return img
 
 @bp.get('/my-stuff/card/<int:card_id>/download')
@@ -1279,12 +1424,13 @@ def my_stuff_card_download(card_id):
     if not _cards_allowed(user): abort(403)
     row=get_db().execute('SELECT * FROM stuff_cards WHERE id=? AND user_id=?',(card_id,user['id'])).fetchone()
     if not row: abort(404)
-    style=request.args.get('style','sunrise').strip().lower()
-    allowed={'sunrise','editorial','poster','minimal','playful','night'}
-    if style not in allowed: style='sunrise'
+    style=request.args.get('style',(row['design_style'] if 'design_style' in row.keys() else 'sunny')).strip().lower()
+    allowed={'sunny','sunrise','editorial','poster','minimal','playful','night'}
+    if style not in allowed: style='sunny'
+    if style=='sunny': style='sunrise'
     try: seed=int(request.args.get('seed','0'))
     except ValueError: seed=0
-    include=request.args.get('brand','1') not in {'0','false','no'}
+    include=(request.args.get('brand','1') not in {'0','false','no'}) and bool(row['signature_enabled'] if 'signature_enabled' in row.keys() else 0)
     class CardProxy:
         def __init__(self,r,style,seed): self._r=r; self._export_style=style; self._export_seed=seed
         def __getitem__(self,k): return self._r[k]
@@ -1459,7 +1605,12 @@ def account():
     posts=db.execute('SELECT * FROM posts WHERE published=1 ORDER BY id DESC LIMIT 5').fetchall()
     service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id WHERE sr.user_id=? ORDER BY sr.id DESC',(u['id'],)).fetchall()
     event_tickets=db.execute("SELECT t.*,e.title event_title,e.event_date FROM event_tickets t JOIN event_ticket_events e ON e.id=t.event_id WHERE t.attendee_user_id=? ORDER BY t.id DESC",(u['id'],)).fetchall()
-    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts,service_requests=service_requests,event_tickets=event_tickets)
+    event_desks=db.execute("""SELECT e.*,COUNT(t.id) ticket_count,
+                      SUM(CASE WHEN t.approval_status='pending' THEN 1 ELSE 0 END) pending_count,
+                      SUM(CASE WHEN t.ticket_status='used' THEN 1 ELSE 0 END) used_count
+               FROM event_ticket_events e LEFT JOIN event_tickets t ON t.event_id=e.id
+               WHERE e.owner_user_id=? AND e.active=1 GROUP BY e.id ORDER BY e.id DESC""",(u['id'],)).fetchall()
+    return render_template('account.html',user=u,bookings=bookings,suggestions=suggestions,posts=posts,service_requests=service_requests,event_tickets=event_tickets,event_desks=event_desks)
 
 @bp.route('/contact',methods=['GET','POST'])
 def contact():

@@ -355,6 +355,7 @@ def init_db(app):
                 'texture_style': "ALTER TABLE stuff_cards ADD COLUMN texture_style TEXT NOT NULL DEFAULT 'none'",
                 'accent_color': "ALTER TABLE stuff_cards ADD COLUMN accent_color TEXT DEFAULT ''",
                 'decoration': "ALTER TABLE stuff_cards ADD COLUMN decoration TEXT NOT NULL DEFAULT 'spark'",
+                'format_style': "ALTER TABLE stuff_cards ADD COLUMN format_style TEXT NOT NULL DEFAULT 'square'",
             },
         }
         for table, cols in upgrades.items():
@@ -416,6 +417,35 @@ def init_db(app):
             ]
             for row in destinations:
                 db.execute('INSERT INTO destinations(slug,title,subtitle,vibe,price_from,cover_image,credit,source_url,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,datetime(\'now\'))', row)
+
+
+        # Expand the travel wall on existing installations without duplicating seeded places.
+        starter_destination_additions = [
+            ('mount-elgon','Mount Elgon','Highland landscapes, caves and a cooler western-Kenya change of scene.','Mountain · caves · highlands',9800,'https://commons.wikimedia.org/wiki/Special:FilePath/Mount_Elgon.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Mount_Elgon',11),
+            ('kisumu','Kisumu','A Lake Victoria city break for food, sunsets, culture and an easy western-Kenya weekend.','Lake · city · culture',7600,'https://commons.wikimedia.org/wiki/Special:FilePath/Kisumu_Impala_Sanctuary.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/File:Kisumu_Impala_Sanctuary.jpg',12),
+            ('lake-victoria','Lake Victoria','Big water, breezes and western-Kenya days built around the lake.','Lake · views · slow days',7900,'https://commons.wikimedia.org/wiki/Special:FilePath/Lake_Victoria.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lake_Victoria',13),
+            ('kakamega-city','Kakamega','A western-Kenya base for forest days, food stops and short nature escapes.','Forest · local life · weekend',6800,'https://commons.wikimedia.org/wiki/Special:FilePath/Kakamega_Forest.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/File:Kakamega_Forest.jpg',14),
+            ('kit-mikayi','Kit-Mikayi','A culture-and-scenery stop that pairs naturally with a Kisumu-area route.','Culture · rocks · day trip',6900,'https://commons.wikimedia.org/wiki/Special:FilePath/Kit_Mikayi.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Kit-Mikayi',15),
+            ('kericho','Kericho','Green tea country, cooler air and a gentler road-trip mood.','Tea country · highlands · green',7000,'https://commons.wikimedia.org/wiki/Special:FilePath/Kericho.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Kericho',16),
+            ('nairobi-national-park','Nairobi National Park','Wildlife close to the city for a half-day or easy group escape.','Wildlife · city · half day',4800,'https://commons.wikimedia.org/wiki/Special:FilePath/Nairobi_National_Park.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Nairobi_National_Park',17),
+            ('karura','Karura Forest','A local green reset with trails and shaded space close to Nairobi.','Forest · walks · local',1800,'https://commons.wikimedia.org/wiki/Special:FilePath/Karura_Forest.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Karura_Forest',18),
+            ('ngong-hills','Ngong Hills','Open ridgelines and a simple hiking day when you want movement without a full weekend.','Hike · views · day trip',2500,'https://commons.wikimedia.org/wiki/Special:FilePath/Ngong_Hills.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Ngong_Hills',19),
+            ('nakuru','Nakuru','A Rift Valley base for lake days, wildlife and nearby nature stops.','Lake · wildlife · Rift Valley',6200,'https://commons.wikimedia.org/wiki/Special:FilePath/Lake_Nakuru.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lake_Nakuru',20),
+            ('lake-baringo','Lake Baringo','Wide-open water, birdlife and a road-trip feel that rewards a slower weekend.','Lake · boats · birds',8200,'https://commons.wikimedia.org/wiki/Special:FilePath/Lake_Baringo.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lake_Baringo',21),
+            ('lake-bogoria','Lake Bogoria','A striking Rift Valley stop for hot-spring country and big landscapes.','Lake · springs · Rift Valley',7600,'https://commons.wikimedia.org/wiki/Special:FilePath/Lake_Bogoria.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lake_Bogoria',22),
+            ('mombasa','Mombasa','A proper coastal city break with old-town wandering, food and sea air.','Coast · culture · city',9200,'https://commons.wikimedia.org/wiki/Special:FilePath/Mombasa_Old_Town.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Mombasa_Old_Town',23),
+            ('malindi','Malindi','Warm coast days, marine experiences and an easy base for a small group getaway.','Coast · marine · slow days',9800,'https://commons.wikimedia.org/wiki/Special:FilePath/Malindi_Beach.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Malindi',24),
+            ('kilifi','Kilifi','Creek views, open skies and a breezier coastal weekend.','Coast · creek · weekend',9500,'https://commons.wikimedia.org/wiki/Special:FilePath/Kilifi_Creek.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Kilifi',25),
+            ('lamu','Lamu','A coastal island escape built around old-town atmosphere, sea time and slower days.','Island · culture · coast',11500,'https://commons.wikimedia.org/wiki/Special:FilePath/Lamu_Old_Town.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lamu_Old_Town',26),
+            ('shimba-hills','Shimba Hills','Coastal highlands, forest and wildlife in a day that feels far from the beach strip.','Wildlife · forest · coast',7800,'https://commons.wikimedia.org/wiki/Special:FilePath/Shimba_Hills.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Shimba_Hills',27),
+            ('tsavo-west','Tsavo West','A classic safari road with wide landscapes, wildlife and a long-drive feeling.','Safari · wildlife · road',14500,'https://commons.wikimedia.org/wiki/Special:FilePath/Tsavo_West_National_Park.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Tsavo_West_National_Park',28),
+            ('meru-national-park','Meru National Park','A northern-eastern safari option with open country and a quieter circuit.','Safari · wildlife · north-east',15000,'https://commons.wikimedia.org/wiki/Special:FilePath/Meru_National_Park.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Meru_National_Park',29),
+            ('marsabit','Marsabit','A longer northern road for people who enjoy the feeling of real distance.','North · road trip · wild',18500,'https://commons.wikimedia.org/wiki/Special:FilePath/Marsabit_National_Park.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Marsabit_National_Park',30),
+            ('lake-turkana','Lake Turkana','A big northern-Kenya expedition idea for a group that wants something very different.','North · lake · expedition',24000,'https://commons.wikimedia.org/wiki/Special:FilePath/Lake_Turkana.jpg','Wikimedia Commons','https://commons.wikimedia.org/wiki/Category:Lake_Turkana',31),
+        ]
+        for row in starter_destination_additions:
+            if not db.execute('SELECT 1 FROM destinations WHERE slug=?',(row[0],)).fetchone():
+                db.execute("INSERT INTO destinations(slug,title,subtitle,vibe,price_from,cover_image,credit,source_url,sort_order,created_at) VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))", row)
 
         if db.execute('SELECT COUNT(*) n FROM trips').fetchone()['n'] == 0:
             trips = [

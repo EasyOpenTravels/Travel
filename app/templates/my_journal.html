@@ -1,16 +1,13 @@
 {% extends 'base.html' %}{% block content %}
-<style>
-.journal-v4-story-row{display:grid;grid-template-columns:minmax(0,1fr) 30px;gap:5px;align-items:center}.journal-v4-story-delete{margin:0}.journal-v4-story-delete button{width:28px;height:28px;border:0;border-radius:9px;background:#fff0f1;color:#b53645;font-size:18px;font-weight:900;line-height:1;cursor:pointer}.journal-v4-story-delete button:active{transform:scale(.94)}
-</style>
 <div class="journal-v4">
   <header class="journal-v4-top">
     <a class="journal-v4-back" href="{{ url_for('public.my_stuff') }}">My Stuff</a>
     <div class="journal-v4-title"><span>YOUR PRIVATE SPACE</span><h1>My Story</h1></div>
-    <button class="journal-v4-stories" type="button" onclick="document.body.classList.toggle('journal-v4-open')">My Story</button>
+    <button class="journal-v4-stories" type="button" aria-label="Open stories" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button>
   </header>
   <aside class="journal-v4-drawer">
     <div class="journal-v4-drawer-head"><strong>Your stories</strong><button type="button" onclick="document.body.classList.remove('journal-v4-open')">×</button></div>
-    <a class="journal-v4-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New story</a>
+    <a class="journal-v4-new" href="{{ url_for('public.my_stuff_journal',write=1) }}">＋ New journal</a>
     <div class="journal-v4-story-list">
       {% for j in journals %}
       <div class="journal-v4-story-row">
@@ -19,8 +16,8 @@
       </div>
       {% else %}<p class="journal-v4-empty">Your stories will appear here.</p>{% endfor %}
     </div>
-    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Story settings</a>
-    <div class="journal-v4-private">PRIVATE · ONLY YOU CAN VIEW YOUR STORIES</div>
+    <a class="journal-v4-settings" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a><a class="journal-v4-lock" href="{{ url_for('public.my_stuff_journal_settings') }}">⌁ Lock journal</a>
+    <div class="journal-v4-private">Private by design</div>
   </aside>
   <main class="journal-v4-main">
   {% if edit_mode or not entry %}
@@ -44,7 +41,7 @@
         <textarea id="journalInput" name="body" placeholder="Write a few words…" required>{{ entry.body if entry else '' }}</textarea>
         <div class="journal-v4-compose-bottom">
           <div class="journal-v4-compose-tools"><button type="button" class="jv4-icon" onclick="document.body.classList.toggle('journal-v4-emoji-open')">😊</button><a class="jv4-icon" href="{{ url_for('public.my_stuff_journal_settings') }}">⚙</a></div>
-          <span id="journalPageHint">Page 1 · keep writing</span>
+          <span id="journalPageHint">Autosave is on</span>
           <button class="journal-v4-save" type="submit">Save story</button>
           <div class="journal-v4-emoji"><button type="button" onclick="jv4Emoji('✨')">✨</button><button type="button" onclick="jv4Emoji('❤️')">❤️</button><button type="button" onclick="jv4Emoji('😂')">😂</button><button type="button" onclick="jv4Emoji('🌿')">🌿</button><button type="button" onclick="jv4Emoji('🌙')">🌙</button></div>
         </div>
@@ -55,7 +52,7 @@
       <div class="journal-v4-read-head"><div><span>{{ entry.mood|title }}</span><h2>{{ entry.title }}</h2></div><a class="journal-v4-edit" href="{{ url_for('public.my_stuff_journal',entry=entry.id,edit=1) }}">Edit</a></div>
       <article class="journal-v4-book"><div id="journalReadV4"></div></article>
       <div class="journal-v4-turn"><button id="jrPrevV4">‹</button><span id="jrCountV4">1 / 1</span><button id="jrNextV4">›</button></div>
-      <div class="journal-v4-read-tools"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button>{{ '★' if entry.favorite else '☆' }}</button></form><button type="button" onclick="document.body.classList.toggle('journal-v4-open')">My Story</button><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button>Archive</button></form></div>
+      <div class="journal-v4-read-tools"><form method="post" action="{{ url_for('public.my_stuff_journal_favorite',entry_id=entry.id) }}"><button>{{ '★' if entry.favorite else '☆' }}</button></form><button type="button" onclick="document.body.classList.toggle('journal-v4-open')">Stories</button><form method="post" action="{{ url_for('public.my_stuff_journal_archive',entry_id=entry.id) }}"><button>Archive</button></form></div>
     </section>
   {% endif %}
   </main>
@@ -64,13 +61,15 @@
 document.body.classList.add('personal-route-body','journal-v4-body');
 (function(){
  const input=document.getElementById('journalInput'); if(!input)return;
+ const entryKey=(document.querySelector('input[name=entry_id]')?.value||'new'); const draftKey='openroad-journal-draft-'+entryKey;
+ const stored=localStorage.getItem(draftKey); if(stored && !(input.value||'').trim()){try{const d=JSON.parse(stored); input.value=d.body||''; if(document.getElementById('journalTitle')) document.getElementById('journalTitle').value=d.title||'';}catch(_){}}
  const title=document.getElementById('journalTitle'), titleField=document.getElementById('journalTitleField'), titleOut=document.getElementById('previewTitle'), bodyOut=document.getElementById('previewBody'), moodOut=document.getElementById('previewMood'), pageOut=document.getElementById('previewPage'), hint=document.getElementById('journalPageHint'), moodField=document.getElementById('journalMoodField'), hidden=document.getElementById('segmentsJsonV4');
  const moods=[...document.querySelectorAll('.journal-v4-mood')]; let active=moods.find(m=>m.classList.contains('active'))?.dataset.mood||'morning'; let segments={morning:'',midday:'',evening:''}; const initial=(input.value||'').trim(); if(initial) segments[active]=initial;
  function splitPages(text){const words=(text||'').trim().split(/\s+/).filter(Boolean), pages=[];let cur='';for(const w of words){const test=(cur+' '+w).trim();if(test.length>900){if(cur)pages.push(cur);cur=w}else cur=test}if(cur)pages.push(cur);return pages.length?pages:[''];}
  function paint(){if(titleField) titleField.value=title.value||'';segments[active]=input.value||'';const all=[segments.morning,segments.midday,segments.evening].filter(Boolean).join('\n\n');const pages=splitPages(all);titleOut.textContent=title.value||'A little memory';bodyOut.textContent=pages[pages.length-1]||'Your words will appear here while you write.';pageOut.textContent=pages.length+' page'+(pages.length===1?'':'s');hint.textContent='Page '+pages.length+' · keep writing';moodOut.textContent=active.toUpperCase();moodField.value=active;}
  moods.forEach(m=>m.addEventListener('click',()=>{segments[active]=input.value||'';active=m.dataset.mood;moods.forEach(x=>x.classList.toggle('active',x===m));input.value=segments[active]||'';paint();input.focus()}));
- input.addEventListener('input',paint);title.addEventListener('input',paint);
- document.getElementById('journalV4Form').addEventListener('submit',()=>{if(titleField) titleField.value=title.value.trim();segments[active]=input.value||'';const parts=Object.entries(segments).filter(([,v])=>v.trim()).map(([time,body])=>({time,body:body.trim()}));hidden.value=JSON.stringify(parts);input.value=Object.values(segments).filter(Boolean).join('\n\n');});
+ let draftTimer; function saveDraft(){clearTimeout(draftTimer);draftTimer=setTimeout(()=>{try{localStorage.setItem(draftKey,JSON.stringify({title:title.value||'',body:input.value||'',saved:Date.now()}));hint.textContent='Draft saved on this phone';}catch(_){}} ,450)} input.addEventListener('input',()=>{paint();saveDraft()});title.addEventListener('input',()=>{paint();saveDraft()});
+ document.getElementById('journalV4Form').addEventListener('submit',()=>{try{localStorage.removeItem(draftKey)}catch(_){}if(titleField) titleField.value=title.value.trim();segments[active]=input.value||'';const parts=Object.entries(segments).filter(([,v])=>v.trim()).map(([time,body])=>({time,body:body.trim()}));hidden.value=JSON.stringify(parts);input.value=Object.values(segments).filter(Boolean).join('\n\n');});
  window.jv4Emoji=e=>{const a=input.selectionStart,b=input.selectionEnd;input.setRangeText(e,a,b,'end');paint();document.body.classList.remove('journal-v4-emoji-open');input.focus()}; paint();
 })();
 (function(){const r=document.getElementById('journalV4Reader');if(!r)return;const raw=r.dataset.body||'',out=document.getElementById('journalReadV4'),prev=document.getElementById('jrPrevV4'),next=document.getElementById('jrNextV4'),count=document.getElementById('jrCountV4');let pages=[],page=0;function split(){const words=raw.trim().split(/\s+/).filter(Boolean);let cur='';pages=[];for(const w of words){const test=(cur+' '+w).trim();if(test.length>980){pages.push(cur);cur=w}else cur=test}if(cur)pages.push(cur);if(!pages.length)pages=[''];}function paint(){out.textContent=pages[page];count.textContent=(page+1)+' / '+pages.length;prev.disabled=page===0;next.disabled=page===pages.length-1}function turn(d){const n=page+d;if(n<0||n>=pages.length)return;page=n;paint()}prev.onclick=()=>turn(-1);next.onclick=()=>turn(1);let sx=0;r.addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});r.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>55)turn(dx<0?1:-1)},{passive:true});window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')turn(-1);if(e.key==='ArrowRight')turn(1)});split();paint()})();
