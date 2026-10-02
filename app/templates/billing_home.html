@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="billing-app">
+  {% if not profile %}
+  <section class="billing-welcome">
+    <div class="billing-welcome-copy">
+      <span class="billing-kicker">OPEN ROAD · SIMPLE ACCOUNTS</span>
+      <h1>Invoices &amp;<br>Receipts</h1>
+      <p>Your little billing desk for apartments, houses, businesses and other places where money needs a clean record.</p>
+      <div class="billing-badges"><span>Professional PDFs</span><span>Rent + extras</span><span>Debt tracking</span></div>
+    </div>
+    <form class="billing-card billing-setup-card" method="post" action="{{ url_for('public.billing_setup') }}">
+      <div class="billing-card-head"><div><span>1 · MAKE YOUR DESK</span><h2>Give it a name.</h2></div><b class="billing-step">FREE TO SET UP</b></div>
+      <div class="billing-form-grid two">
+        <label>What is it?<select name="place_type"><option>Apartment</option><option>House</option><option>Business</option><option>Office</option><option>Estate</option><option>School</option><option>Other</option></select></label>
+        <label>Name <input name="place_name" placeholder="e.g. Sunrise Apartments" required></label>
+        <label>Owner / manager <span class="muted">optional</span><input name="owner_name" placeholder="e.g. Jane Wanjiku"></label>
+        <label>Phone <span class="muted">optional</span><input name="phone" placeholder="07xx xxx xxx"></label>
+        <label class="span-2">Address / location <span class="muted">optional</span><input name="address" placeholder="e.g. Thika Road, Nairobi"></label>
+        <label>Simple Billing ID <span class="muted">optional</span><input name="billing_id" maxlength="14" placeholder="Leave blank for a ready ID"></label>
+      </div>
+      <div class="billing-setup-foot"><div><strong>Already have an Open Road account?</strong><span>You're using your normal sign-in. Your Billing ID is just the short name for this desk.</span></div><button class="billing-primary" type="submit">Create billing desk →</button></div>
+    </form>
+  </section>
+  {% else %}
+  <header class="billing-top">
+    <div class="billing-heading"><div class="billing-id-chip">BILLING ID <strong>{{ profile.billing_id }}</strong></div><span class="billing-kicker">{{ profile.place_type|upper }} · YOUR PRIVATE DESK</span><h1>{{ profile.place_name }}</h1><p>{% if profile.owner_name %}{{ profile.owner_name }} · {% endif %}Invoices, receipts and easy follow-up.</p></div>
+    <div class="billing-tools">
+      <button type="button" class="billing-quiet" onclick="document.getElementById('billingProfile').showModal()">Desk</button>
+      <div class="tool-dropdown billing-dropdown"><button type="button" class="billing-quiet" aria-haspopup="true" onclick="this.parentElement.classList.toggle('open')">⋯</button><div class="tool-dropdown-menu"><a href="{{ url_for('public.billing_home') }}">Open desk</a><button type="button" onclick="shareTool('{{ url_for('public.billing_home',_external=True) }}','Invoices & Receipts')">Share link</button><a href="{{ url_for('public.billing_home',_external=False) }}?install=1">Install as app</a></div></div>
+      <a class="billing-logout" href="{{ url_for('public.logout') }}">Sign out</a>
+    </div>
+  </header>
+
+  <section class="billing-stats">
+    <div class="billing-stat"><span>OUTSTANDING</span><strong>KES {{ '{:,.0f}'.format(outstanding) }}</strong><small>Money still due across invoices</small></div>
+    <div class="billing-stat"><span>INVOICED</span><strong>KES {{ '{:,.0f}'.format(invoiced) }}</strong><small>Total value of invoices made</small></div>
+    <div class="billing-stat"><span>COLLECTED</span><strong>KES {{ '{:,.0f}'.format(collected) }}</strong><small>Receipts recorded in this desk</small></div>
+  </section>
+
+  <section class="billing-actions-grid">
+    <button class="billing-action-card mint" type="button" onclick="openBillingDialog('customerDialog')"><span class="billing-action-icon">+</span><div><b>Add occupant</b><small>Name, phone, unit and rent</small></div></button>
+    <button class="billing-action-card yellow" type="button" onclick="openBillingDialog('invoiceDialog')"><span class="billing-action-icon">↗</span><div><b>Make an invoice</b><small>Rent, water, trash or anything else</small></div></button>
+    <button class="billing-action-card pink" type="button" onclick="openBillingDialog('paymentDialog')"><span class="billing-action-icon">KES</span><div><b>Record payment</b><small>Pick the person, enter the amount</small></div></button>
+    <div class="billing-report-card"><span>REPORTS</span><div><a href="{{ url_for('public.billing_debts_pdf') }}">Debts PDF</a><a href="{{ url_for('public.billing_cashbook_pdf') }}">Cashbook PDF</a></div><small>Keep an eye on balances and payments.</small></div>
+  </section>
+
+  <div class="billing-layout">
+    <section class="billing-panel">
+      <header class="billing-panel-head"><div><span>PEOPLE</span><h2>Your occupants</h2></div><button type="button" class="billing-small-btn" onclick="openBillingDialog('customerDialog')">+ Add</button></header>
+      <div class="billing-people" id="billingPeople">
+        {% for c in customers %}
+        <article class="billing-person">
+          <button class="billing-person-main" type="button" onclick='editBillingCustomer({{ c.id }},{{ c.name|tojson }},{{ c.phone|tojson }},{{ c.unit_label|tojson }},{{ c.rent_amount }},{{ (c.recurring_items_json or "[]")|tojson }},{{ (c.notes or "")|tojson }})'>
+            <span class="billing-avatar">{{ c.name[:1]|upper }}</span><span class="billing-person-copy"><strong>{{ c.name }}</strong><small>{% if c.unit_label %}{{ c.unit_label }} · {% endif %}{{ c.phone or 'No phone saved' }}</small></span><span class="billing-rent"><small>RENT</small><b>KES {{ '{:,.0f}'.format(c.rent_amount) }}</b></span>
+          </button>
+          <div class="billing-person-actions"><button type="button" onclick='openInvoiceFor({{ c.id }})'>Invoice</button><button type="button" onclick='openPaymentFor({{ c.id }})'>Pay</button><details class="billing-more"><summary>⋯</summary><div><button type="button" onclick='editBillingCustomer({{ c.id }},{{ c.name|tojson }},{{ c.phone|tojson }},{{ c.unit_label|tojson }},{{ c.rent_amount }},{{ (c.recurring_items_json or "[]")|tojson }},{{ (c.notes or "")|tojson }})'>Edit</button><form method="post" action="{{ url_for('public.billing_customer_archive',customer_id=c.id) }}"><button type="submit">Archive</button></form></div></details></div>
+        </article>
+        {% else %}<div class="billing-empty"><strong>No occupants yet.</strong><span>Add the first person and rent. Everything else becomes much quicker after that.</span><button type="button" class="billing-primary" onclick="openBillingDialog('customerDialog')">Add first occupant</button></div>{% endfor %}
+      </div>
+    </section>
+
+    <aside class="billing-side-panel">
+      <section class="billing-panel compact"><header class="billing-panel-head"><div><span>RECENT</span><h2>Invoices</h2></div><button type="button" class="billing-small-btn" onclick="openBillingDialog('invoiceDialog')">+ New</button></header><div class="billing-doc-list">{% for i in invoices %}<div class="billing-doc"><div><strong>{{ i.invoice_number }}</strong><small>{{ i.customer_name }}{% if i.unit_label %} · {{ i.unit_label }}{% endif %} · {{ i.status|title }}</small></div><b>KES {{ '{:,.0f}'.format(i.subtotal) }}</b><a href="{{ url_for('public.billing_invoice_pdf',invoice_id=i.id) }}" title="Download invoice PDF">PDF</a></div>{% else %}<p class="billing-none">No invoices yet.</p>{% endfor %}</div></section>
+      <section class="billing-panel compact"><header class="billing-panel-head"><div><span>RECENT</span><h2>Receipts</h2></div><button type="button" class="billing-small-btn" onclick="openBillingDialog('paymentDialog')">+ Payment</button></header><div class="billing-doc-list">{% for r in receipts %}<div class="billing-doc receipt"><div><strong>{{ r.receipt_number }}</strong><small>{{ r.customer_name }} · {{ r.payment_method }}{% if r.invoice_number %} · {{ r.invoice_number }}{% endif %}</small></div><b>KES {{ '{:,.0f}'.format(r.amount_paid) }}</b><a href="{{ url_for('public.billing_receipt_pdf',receipt_id=r.id) }}" title="Download receipt PDF">PDF</a></div>{% else %}<p class="billing-none">No receipts yet.</p>{% endfor %}</div></section>
+    </aside>
+  </div>
+
+  <div class="billing-footline"><span>Need a clean paper trail?</span><a href="{{ url_for('public.billing_debts_pdf') }}">Outstanding debts PDF →</a><a href="{{ url_for('public.billing_cashbook_pdf') }}">Payment cashbook PDF →</a><span class="billing-signin-note">Your desk is tied to your normal Open Road sign-in. Keep your Billing ID: <b>{{ profile.billing_id }}</b>.</span></div>
+  {% endif %}
+</div>
+
+{% if profile %}
+<dialog id="billingProfile" class="billing-dialog">
+  <button class="billing-close" type="button" onclick="this.closest('dialog').close()">×</button><span class="billing-dialog-kicker">YOUR DESK</span><h2>Keep the letterhead right.</h2>
+  <form method="post" action="{{ url_for('public.billing_profile_update') }}"><div class="billing-form-grid two"><label>Type<select name="place_type"><option {% if profile.place_type=='Apartment' %}selected{% endif %}>Apartment</option><option {% if profile.place_type=='House' %}selected{% endif %}>House</option><option {% if profile.place_type=='Business' %}selected{% endif %}>Business</option><option {% if profile.place_type=='Office' %}selected{% endif %}>Office</option><option {% if profile.place_type=='Estate' %}selected{% endif %}>Estate</option><option {% if profile.place_type=='School' %}selected{% endif %}>School</option><option {% if profile.place_type=='Other' %}selected{% endif %}>Other</option></select></label><label>Name<input name="place_name" value="{{ profile.place_name }}" required></label><label>Owner / manager<input name="owner_name" value="{{ profile.owner_name }}"></label><label>Phone<input name="phone" value="{{ profile.phone }}"></label><label class="span-2">Address<input name="address" value="{{ profile.address }}"></label><label class="span-2">Where should people pay? <span class="muted">shown on invoices & receipts</span><textarea name="payment_to" rows="3" placeholder="M-Pesa Till / Paybill / bank details">{{ profile.payment_to or '' }}</textarea></label></div><div class="billing-readonly-id">Simple Billing ID <strong>{{ profile.billing_id }}</strong><span>It identifies this billing desk. Your normal Open Road login protects the account.</span></div><button class="billing-primary" type="submit">Save desk</button></form>
+</dialog>
+
+<dialog id="customerDialog" class="billing-dialog wide">
+  <button class="billing-close" type="button" onclick="this.closest('dialog').close()">×</button><span class="billing-dialog-kicker">OCCUPANT</span><h2 id="customerDialogTitle">Add a person.</h2><p>Rent is the only compulsory charge. Save water, trash, security or another charge only when it is useful for this person.</p>
+  <form method="post" action="{{ url_for('public.billing_customer_save') }}" id="customerForm"><input type="hidden" name="customer_id" id="customerId"><div class="billing-form-grid two"><label>Name <input name="name" id="customerName" placeholder="Michael Kamau" required></label><label>Phone <input name="phone" id="customerPhone" placeholder="0712 345 678"></label><label>House / unit / receiver <input name="unit_label" id="customerUnit" placeholder="House 3 · Bedsitter · Office 2"></label><label>Rent (KES) <input name="rent_amount" id="customerRent" type="number" min="1" step="1" placeholder="15000" required></label></div><div class="billing-line-builder"><header><div><span>ALWAYS INCLUDE</span><strong>Optional recurring charges</strong></div><button type="button" onclick="addCustomerCharge()">+ Add charge</button></header><div id="customerCharges"></div><small>These are saved for this person and can be selected automatically on future invoices.</small></div><label>Private note <span class="muted">optional</span><textarea name="notes" id="customerNotes" rows="3" placeholder="Anything useful about this occupant."></textarea></label><div class="billing-dialog-actions"><button type="button" class="billing-secondary" onclick="this.closest('dialog').close()">Cancel</button><button class="billing-primary" type="submit">Save occupant</button></div></form>
+</dialog>
+
+<dialog id="invoiceDialog" class="billing-dialog wide">
+  <button class="billing-close" type="button" onclick="this.closest('dialog').close()">×</button><span class="billing-dialog-kicker">INVOICE</span><h2>Make it, then download it.</h2><p>Choose a person. Rent is already there. Add any saved charges and any one-off items for this invoice.</p>
+  <form method="post" action="{{ url_for('public.billing_invoice_create') }}" id="invoiceForm"><div class="billing-form-grid two"><label>Occupant<select name="customer_id" id="invoiceCustomer" required><option value="">Choose occupant…</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}{% if c.unit_label %} · {{ c.unit_label }}{% endif %}</option>{% endfor %}</select></label><label>Invoice date<input name="issue_date" type="date" value="" id="invoiceIssue"></label><label>Due date <span class="muted">optional</span><input name="due_date" type="date"></label><label>Receiver name <span class="muted">optional</span><input name="recipient_name" id="invoiceRecipient" placeholder="Uses occupant name"></label><label class="span-2">Receiver / unit label <span class="muted">optional</span><input name="recipient_unit" id="invoiceUnit" placeholder="House 3 · Joseph House X · Michael · Bedsitter"></label></div><div class="billing-saved-charge-box"><header><span>SAVED CHARGES</span><strong id="invoiceChargesTitle">Choose an occupant first</strong></header><div id="invoiceSavedCharges"><p class="billing-none">Rent will always be included.</p></div></div><div class="billing-line-builder"><header><div><span>ONE-OFF</span><strong>Extra invoice items</strong></div><button type="button" onclick="addInvoiceLine()">+ Add line</button></header><div id="invoiceExtraLines"></div><small>Examples: repair, late fee, parking, replacement key, special service.</small></div><label class="span-2">Where to pay <span class="muted">defaults from your desk; edit when needed</span><textarea name="payment_to" rows="2" placeholder="M-Pesa Till, Paybill, bank account or other payment instructions">{{ profile.payment_to if profile else '' }}</textarea></label><label>Note <span class="muted">optional</span><textarea name="notes" rows="3" placeholder="A brief note for the invoice."></textarea></label><div class="billing-invoice-total"><span>Invoice total</span><strong id="invoiceLiveTotal">KES 0</strong></div><div class="billing-dialog-actions"><button type="button" class="billing-secondary" onclick="this.closest('dialog').close()">Cancel</button><button class="billing-primary" type="submit">Create invoice</button></div></form>
+</dialog>
+
+<dialog id="paymentDialog" class="billing-dialog">
+  <button class="billing-close" type="button" onclick="this.closest('dialog').close()">×</button><span class="billing-dialog-kicker">PAYMENT</span><h2>Record money received.</h2><p>Pick the person, enter what they paid, and the matching open invoice is used when possible.</p>
+  <form method="post" action="{{ url_for('public.billing_payment_create') }}" id="paymentForm"><div class="billing-form-grid two"><label>Occupant<select name="customer_id" id="paymentCustomer" required><option value="">Choose occupant…</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.name }}{% if c.unit_label %} · {{ c.unit_label }}{% endif %}</option>{% endfor %}</select></label><label>Amount paid (KES)<input name="amount_paid" id="paymentAmount" type="number" min="1" step="1" placeholder="15000" required></label><label>Invoice <span class="muted">optional</span><select name="invoice_id" id="paymentInvoice"><option value="">Use oldest open invoice</option>{% for i in invoices if i.status != 'paid' %}<option value="{{ i.id }}" data-customer="{{ i.customer_id }}">{{ i.invoice_number }} · {{ i.customer_name }} · KES {{ '{:,.0f}'.format(i.subtotal-i.paid_amount) }} due</option>{% endfor %}</select></label><label>Payment date<input name="payment_date" type="date"></label><label>Method<select name="payment_method"><option>Cash</option><option>M-Pesa</option><option>Bank</option><option>Card</option><option>Other</option></select></label><label>Reference <span class="muted">optional</span><input name="payment_reference" placeholder="M-Pesa code / receipt no."></label></div><label>Note <span class="muted">optional</span><input name="note" placeholder="Paid rent for October"></label><div class="billing-dialog-actions"><button type="button" class="billing-secondary" onclick="this.closest('dialog').close()">Cancel</button><button class="billing-primary" type="submit">Save payment + receipt</button></div></form>
+</dialog>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.body.classList.add('billing-body');
+const BILLING_SAVED={{ saved_data|default({})|tojson }};
+const BILLING_CUSTOMERS={ {% if customers %}{% for c in customers %}'{{ c.id }}':{name:{{ c.name|tojson }},unit:{{ (c.unit_label or '')|tojson }},rent:{{ c.rent_amount }},saved:{{ (saved_data.get(c.id|string,[]) if saved_data is defined else [])|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}{% endif %} };
+const billingMoney=n=>`KES ${Number(n||0).toLocaleString('en-KE')}`;
+function openBillingDialog(id){const d=document.getElementById(id);if(!d)return;if(id==='invoiceDialog')resetInvoiceForm();if(id==='paymentDialog')resetPaymentForm();if(id==='customerDialog')resetCustomerForm();d.showModal();}
+function closeBillingDropdowns(){document.querySelectorAll('.tool-dropdown.open').forEach(x=>x.classList.remove('open'));}
+document.addEventListener('click',e=>{if(!e.target.closest('.tool-dropdown'))closeBillingDropdowns();});
+window.shareTool=async function(url,label){try{if(navigator.share){await navigator.share({title:label,text:`Open ${label}`,url});}else{await navigator.clipboard.writeText(url);alert(`${label} link copied.`);}}catch(e){if(e&&e.name!=='AbortError'){try{await navigator.clipboard.writeText(url);alert(`${label} link copied.`);}catch(_){prompt('Copy this link:',url);}}}closeBillingDropdowns();};
+function setToday(selector){const el=document.querySelector(selector);if(el&&!el.value)el.value=new Date().toISOString().slice(0,10)}
+function resetCustomerForm(){const f=document.getElementById('customerForm');if(!f)return;f.reset();document.getElementById('customerId').value='';document.getElementById('customerDialogTitle').textContent='Add a person.';document.getElementById('customerCharges').innerHTML='';addCustomerCharge();}
+function editBillingCustomer(id,name,phone,unit,rent,rawNotes,notes){const d=document.getElementById('customerDialog');const f=document.getElementById('customerForm');document.getElementById('customerId').value=id;document.getElementById('customerName').value=name||'';document.getElementById('customerPhone').value=phone||'';document.getElementById('customerUnit').value=unit||'';document.getElementById('customerRent').value=rent||'';document.getElementById('customerNotes').value=notes||'';document.getElementById('customerDialogTitle').textContent='Edit the person.';const charges=document.getElementById('customerCharges');charges.innerHTML='';let items=[];try{items=JSON.parse(rawNotes||'[]')}catch(e){}if(Array.isArray(items)&&items.length){items.forEach(x=>addCustomerCharge(x.label,x.amount));}else addCustomerCharge();d.showModal();}
+function addCustomerCharge(label='',amount=''){const wrap=document.getElementById('customerCharges');const row=document.createElement('div');row.className='billing-line-row';row.innerHTML=`<input name="item_label[]" placeholder="Water / trash / security" value="${String(label).replaceAll('"','&quot;')}"><input name="item_amount[]" type="number" min="0" step="1" placeholder="0" value="${amount||''}"><button type="button" title="Remove" onclick="this.closest('.billing-line-row').remove()">×</button>`;wrap.appendChild(row);}
+function resetInvoiceForm(){const f=document.getElementById('invoiceForm');if(!f)return;f.reset();document.getElementById('invoiceSavedCharges').innerHTML='<p class="billing-none">Choose an occupant to load their saved charges.</p>';document.getElementById('invoiceChargesTitle').textContent='Choose an occupant first';document.getElementById('invoiceExtraLines').innerHTML='';addInvoiceLine();setToday('#invoiceIssue');document.getElementById('invoiceLiveTotal').textContent='KES 0';}
+function renderInvoiceFor(id){const c=BILLING_CUSTOMERS[String(id)];const box=document.getElementById('invoiceSavedCharges');document.getElementById('invoiceChargesTitle').textContent=c?`${c.name} · Rent is compulsory`: 'Choose an occupant first';box.innerHTML='';if(!c){document.getElementById('invoiceLiveTotal').textContent='KES 0';return}const rent=document.createElement('label');rent.className='billing-saved-row fixed';rent.innerHTML=`<span><b>Rent</b><small>Compulsory</small></span><strong>${billingMoney(c.rent)}</strong>`;rent.dataset.amount=c.rent;box.appendChild(rent);(c.saved||[]).forEach((it,idx)=>{const row=document.createElement('label');row.className='billing-saved-row';row.innerHTML=`<input type="checkbox" name="saved_index[]" value="${idx}" checked><span><b>${it.label}</b><small>Saved charge</small></span><strong>${billingMoney(it.amount)}</strong>`;row.querySelector('input').addEventListener('change',updateInvoiceTotal);row.dataset.amount=it.amount;box.appendChild(row)});document.getElementById('invoiceRecipient').value=c.name||'';document.getElementById('invoiceUnit').value=c.unit||'';updateInvoiceTotal();}
+function updateInvoiceTotal(){let total=0;document.querySelectorAll('#invoiceSavedCharges .billing-saved-row').forEach(r=>{const cb=r.querySelector('input[type=checkbox]');if(!cb||cb.checked)total+=Number(r.dataset.amount||0)});document.querySelectorAll('#invoiceExtraLines .billing-line-row').forEach(r=>total+=Number(r.querySelector('input[name="extra_amount[]"]')?.value||0));document.getElementById('invoiceLiveTotal').textContent=billingMoney(total)}
+function addInvoiceLine(label='',amount=''){const wrap=document.getElementById('invoiceExtraLines');const row=document.createElement('div');row.className='billing-line-row';row.innerHTML=`<input name="extra_label[]" placeholder="e.g. Parking" value="${String(label).replaceAll('"','&quot;')}"><input name="extra_amount[]" type="number" min="0" step="1" placeholder="0" value="${amount||''}"><button type="button" title="Remove" onclick="this.closest('.billing-line-row').remove();updateInvoiceTotal()">×</button>`;row.querySelectorAll('input').forEach(x=>x.addEventListener('input',updateInvoiceTotal));wrap.appendChild(row);}
+function resetPaymentForm(){const f=document.getElementById('paymentForm');if(!f)return;f.reset();filterPaymentInvoices('');setToday('#paymentForm input[name="payment_date"]');}
+function filterPaymentInvoices(id){const sel=document.getElementById('paymentInvoice');if(!sel)return;[...sel.options].forEach((o,i)=>{if(i===0){o.hidden=false;return;}o.hidden=!!id&&o.dataset.customer!==String(id);});if(sel.value&&sel.selectedOptions[0]?.hidden)sel.value='';}
+function openInvoiceFor(id){openBillingDialog('invoiceDialog');const sel=document.getElementById('invoiceCustomer');sel.value=String(id);renderInvoiceFor(id);}
+function openPaymentFor(id){openBillingDialog('paymentDialog');const sel=document.getElementById('paymentCustomer');sel.value=String(id);filterPaymentInvoices(id);}
+document.getElementById('invoiceCustomer')?.addEventListener('change',e=>renderInvoiceFor(e.target.value));
+document.getElementById('paymentCustomer')?.addEventListener('change',e=>filterPaymentInvoices(e.target.value));
+document.querySelectorAll('.billing-body input[type=date]').forEach(x=>{if(x.name!=='due_date')x.value=x.value||new Date().toISOString().slice(0,10)});
+</script>
+{% endblock %}

@@ -269,84 +269,6 @@ CREATE TABLE IF NOT EXISTS journal_entries (
  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS billing_profiles (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- user_id INTEGER NOT NULL,
- billing_id TEXT UNIQUE NOT NULL,
- place_type TEXT NOT NULL DEFAULT 'Apartment',
- place_name TEXT NOT NULL,
- owner_name TEXT DEFAULT '',
- phone TEXT DEFAULT '',
- address TEXT DEFAULT '',
- payment_to TEXT DEFAULT '',
- created_at TEXT NOT NULL,
- FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS billing_customers (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- profile_id INTEGER NOT NULL,
- name TEXT NOT NULL,
- phone TEXT DEFAULT '',
- unit_label TEXT DEFAULT '',
- rent_amount INTEGER NOT NULL DEFAULT 0,
- recurring_items_json TEXT NOT NULL DEFAULT '[]',
- notes TEXT DEFAULT '',
- active INTEGER NOT NULL DEFAULT 1,
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- FOREIGN KEY(profile_id) REFERENCES billing_profiles(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS billing_invoices (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- profile_id INTEGER NOT NULL,
- customer_id INTEGER NOT NULL,
- invoice_number TEXT UNIQUE NOT NULL,
- issue_date TEXT NOT NULL,
- due_date TEXT DEFAULT '',
- property_name TEXT NOT NULL,
- owner_name TEXT DEFAULT '',
- recipient_name TEXT NOT NULL,
- recipient_unit TEXT DEFAULT '',
- notes TEXT DEFAULT '',
- payment_to TEXT DEFAULT '',
- subtotal INTEGER NOT NULL DEFAULT 0,
- paid_amount INTEGER NOT NULL DEFAULT 0,
- status TEXT NOT NULL DEFAULT 'unpaid',
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- FOREIGN KEY(profile_id) REFERENCES billing_profiles(id) ON DELETE CASCADE,
- FOREIGN KEY(customer_id) REFERENCES billing_customers(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS billing_invoice_items (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- invoice_id INTEGER NOT NULL,
- label TEXT NOT NULL,
- quantity INTEGER NOT NULL DEFAULT 1,
- amount INTEGER NOT NULL DEFAULT 0,
- FOREIGN KEY(invoice_id) REFERENCES billing_invoices(id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS billing_receipts (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- profile_id INTEGER NOT NULL,
- customer_id INTEGER NOT NULL,
- invoice_id INTEGER,
- receipt_number TEXT UNIQUE NOT NULL,
- payment_date TEXT NOT NULL,
- property_name TEXT NOT NULL,
- owner_name TEXT DEFAULT '',
- recipient_name TEXT NOT NULL,
- recipient_unit TEXT DEFAULT '',
- payment_to TEXT DEFAULT '',
- amount_paid INTEGER NOT NULL DEFAULT 0,
- payment_method TEXT NOT NULL DEFAULT 'Cash',
- payment_reference TEXT DEFAULT '',
- note TEXT DEFAULT '',
- created_at TEXT NOT NULL,
- FOREIGN KEY(profile_id) REFERENCES billing_profiles(id) ON DELETE CASCADE,
- FOREIGN KEY(customer_id) REFERENCES billing_customers(id) ON DELETE CASCADE,
- FOREIGN KEY(invoice_id) REFERENCES billing_invoices(id) ON DELETE SET NULL
-);
-
 '''
 
 def get_db():
@@ -417,15 +339,6 @@ def init_db(app):
             'group_members': {
                 'phone': "ALTER TABLE group_members ADD COLUMN phone TEXT DEFAULT ''",
                 'email': "ALTER TABLE group_members ADD COLUMN email TEXT DEFAULT ''",
-            },
-            'billing_profiles': {
-                'payment_to': "ALTER TABLE billing_profiles ADD COLUMN payment_to TEXT DEFAULT ''",
-            },
-            'billing_invoices': {
-                'payment_to': "ALTER TABLE billing_invoices ADD COLUMN payment_to TEXT DEFAULT ''",
-            },
-            'billing_receipts': {
-                'payment_to': "ALTER TABLE billing_receipts ADD COLUMN payment_to TEXT DEFAULT ''",
             },
             'stuff_cards': {
                 'font_style': "ALTER TABLE stuff_cards ADD COLUMN font_style TEXT NOT NULL DEFAULT 'bold'",

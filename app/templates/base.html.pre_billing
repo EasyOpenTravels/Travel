@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#12212b"><meta name="description" content="Open Road Adventures — trips, celebrations, events and easy ticketing.">
+<link rel="manifest" href="{{ url_for('public.manifest') }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css',v='20260920-ui6') }}"><title>{{ config.BRAND_NAME }}</title>
+</head>
+<body>
+<header class="topbar">
+  <button class="menu-button" type="button" aria-label="Open menu" aria-expanded="false" onclick="toggleRoadMenu()"><span></span><span></span><span></span></button>
+  <a class="brand" href="{{ url_for('public.home') }}"><span class="brand-mark">OR</span><span>OPEN ROAD</span></a>
+  <form class="search" action="{{ url_for('public.search') }}"><input name="q" value="{{ request.args.get('q','') }}" placeholder="Search a place, mood, trip or event"><button aria-label="Search">⌕</button></form>
+  <nav class="desktop-nav"><a href="{{ url_for('public.home') }}">Explore</a><a href="{{ url_for('public.services') }}">Make it happen</a><a href="{{ url_for('public.contact') }}">Talk to us</a>{% if session.get('user_id') %}<a class="nav-hot" href="{{ url_for('public.account') }}">My adventure</a>{% else %}<a class="nav-hot" href="{{ url_for('public.register') }}">Register</a>{% endif %}</nav>
+  <div class="mobile-nav-actions"><a class="mobile-register" href="{{ url_for('public.account') if session.get('user_id') else url_for('public.register') }}">{{ 'My adventure' if session.get('user_id') else 'Register' }}</a></div>
+</header>
+<div class="road-menu" id="roadMenu" aria-hidden="true">
+  <div class="road-menu-shade" onclick="toggleRoadMenu(false)"></div>
+  <aside class="road-drawer">
+    <div class="drawer-top"><div><span class="eyebrow">OPEN ROAD</span><h2>Where are we going?</h2></div><button class="drawer-close" onclick="toggleRoadMenu(false)" aria-label="Close menu">×</button></div>
+    <div class="drawer-note">Five calm doors. Everything else lives inside them.</div>
+    <nav class="drawer-sections">
+      <details class="drawer-section" open><summary><span class="drawer-section-no">01</span><span><b>Road trips</b><small>Go somewhere worth remembering</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.home') }}#trips" onclick="toggleRoadMenu(false)">Explore trips</a><a href="{{ url_for('public.home') }}#places" onclick="toggleRoadMenu(false)">Places to go</a><a href="{{ url_for('public.search') }}" onclick="toggleRoadMenu(false)">Search the road</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">02</span><span><b>Private events</b><small>Birthdays, weddings, launches, reunions</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)">Plan an event</a><a href="{{ url_for('public.services') }}#events" onclick="toggleRoadMenu(false)">Event services</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">03</span><span><b>Ticketing system</b><small>Find, create or scan</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.ticketing_find') }}" onclick="toggleRoadMenu(false)">Find an event</a><a href="{{ url_for('public.ticketing_host') }}" onclick="toggleRoadMenu(false)">Create an event</a><a href="{{ url_for('public.ticketing_home') }}#my-events" onclick="toggleRoadMenu(false)">My events & manage</a><a href="{{ url_for('public.staff_scanner') }}" onclick="toggleRoadMenu(false)">Scan ticket</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">04</span><span><b>Group retreats</b><small>Families, schools, colleagues, teams</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.group_retreats') }}" onclick="toggleRoadMenu(false)">Start a group plan</a><a href="{{ url_for('public.group_retreats') }}#how-it-works" onclick="toggleRoadMenu(false)">How groups work</a></div></details>
+      <details class="drawer-section"><summary><span class="drawer-section-no">05</span><span><b>My Stuff</b><small>Story, cards and saved references</small></span></summary><div class="drawer-nested"><a href="{{ url_for('public.my_stuff_journal') }}" onclick="toggleRoadMenu(false)">My Story</a><a href="{{ url_for('public.my_stuff_cards') }}" onclick="toggleRoadMenu(false)">My Cards</a><a href="{{ url_for('public.my_stuff_copy_paste') }}" onclick="toggleRoadMenu(false)">My Saves</a></div></details>
+    </nav>
+    <div class="drawer-bottom">One place for the road, the event and the little things you keep.</div>
+  </aside>
+</div>
+<div class="pwa-note" id="pwaNote"><div><b>Take Open Road with you</b><span>Install it like an app for quicker access.</span></div><button id="pwaInstall">Install</button></div>
+<main>{% with msgs=get_flashed_messages(with_categories=true) %}{% for c,m in msgs %}<div class="flash {{ c }}">{{m}}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
+<footer class="footer"><div><div class="footer-brand">OPEN ROAD ADVENTURES</div><p>Road trips, experiences, celebrations and good people. Built to make the “should we?” moment become “we're doing it.”</p></div><div><b>Make something happen</b><a href="{{ url_for('public.services') }}">Events & celebrations</a><a href="{{ url_for('public.services') }}#ticketing">Ticketing</a><a href="{{ url_for('public.contact') }}">Talk to the Adventure Team</a><a href="{{ url_for('public.join') }}">Share Open Road</a></div><div><b>Good to know</b><span>Easy booking · secure tickets · one-time QR check-in</span><span>Installable on supported phones</span><span>All rights reserved.</span></div></footer>
+<script>document.documentElement.classList.add('js');if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('{{url_for('static',filename='sw.js')}}').catch(()=>{}));}</script>
+<script>let deferredInstall=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const n=document.getElementById('pwaNote');if(n)n.style.display='flex'});document.getElementById('pwaInstall')?.addEventListener('click',async()=>{if(!deferredInstall)return;deferredInstall.prompt();try{await deferredInstall.userChoice}catch(e){}deferredInstall=null;document.getElementById('pwaNote')?.remove()});function toggleRoadMenu(force){const w=document.getElementById('roadMenu');if(!w)return;const open=typeof force==='boolean'?force:!w.classList.contains('open');w.classList.toggle('open',open);w.setAttribute('aria-hidden',String(!open));document.querySelector('.menu-button')?.setAttribute('aria-expanded',String(open));document.body.classList.toggle('menu-lock',open)}</script>{% block scripts %}{% endblock %}
+</body></html>
