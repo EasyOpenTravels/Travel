@@ -1,12 +1,13 @@
 from io import BytesIO
 from pathlib import Path
-import re, secrets, sqlite3, os, hmac, json
+import re, secrets, sqlite3, os, hmac, json, hashlib, ipaddress
 from datetime import datetime, timezone
 from xml.sax.saxutils import escape as xml_escape
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file, Response
 from .db import get_db
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
 from .qr import make_qr_bytes
+from .connectors import product_search, product_fallback_links, job_search, job_fallback_links
 
 bp = Blueprint('public', __name__)
 
@@ -27,11 +28,35 @@ def promo_value():
     except ValueError: days=0
     return base + days*growth
 
+def _client_ip():
+    forwarded=request.headers.get('X-Forwarded-For','').split(',')[0].strip()
+    raw=forwarded or request.remote_addr or ''
+    try: return str(ipaddress.ip_address(raw))
+    except ValueError: return raw[:80]
+
+def _device_key():
+    key=request.cookies.get('or_device_key')
+    return key or secrets.token_urlsafe(24)
+
+def _digest(value):
+    return hashlib.sha256(str(value).encode('utf-8')).hexdigest()
+
 def log_visit():
-    if request.path.startswith('/static/') or request.path.startswith('/media/') or request.path.startswith('/api/'):
+    if request.path.startswith('/static/') or request.path.startswith('/media/'):
         return
-    key=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
-    db=get_db(); db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(key,request.path,now())); db.commit(); request._visitor_key=key
+    visitor=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
+    device=_device_key()
+    user_id=session.get('user_id')
+    phone=''
+    if user_id:
+        row=get_db().execute('SELECT phone FROM users WHERE id=? AND deleted_at IS NULL',(user_id,)).fetchone()
+        phone=row['phone'] if row else ''
+    db=get_db()
+    db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(visitor,request.path,now()))
+    cur=db.execute("INSERT INTO access_logs(user_id,visitor_key_hash,device_key_hash,phone,path,ip_address,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                   (user_id,_digest(visitor),_digest(device),phone,request.path,_client_ip(),request.headers.get('User-Agent','')[:500],now()))
+    db.commit()
+    request._visitor_key=visitor; request._device_key=device; request._access_id=cur.lastrowid
 
 @bp.before_request
 def before(): log_visit()
@@ -41,6 +66,9 @@ def visitor_cookie(response):
     key=getattr(request,'_visitor_key',None)
     if key and not request.cookies.get('visitor_key'):
         response.set_cookie('visitor_key',key,max_age=31536000,httponly=True,samesite='Lax',secure=request.is_secure)
+    device=getattr(request,'_device_key',None)
+    if device and not request.cookies.get('or_device_key'):
+        response.set_cookie('or_device_key',device,max_age=31536000,httponly=True,samesite='Lax',secure=request.is_secure)
     return response
 
 @bp.get('/health')
@@ -1952,6 +1980,89 @@ def my_stuff_image_delete(image_id):
         try: os.remove(os.path.join(current_app.config['UPLOAD_FOLDER'],row['filename']))
         except OSError: pass
     flash('Image history item deleted.','success'); return redirect(url_for('public.my_stuff_edits_studio'))
+
+def _cache_rows(kind, cache_key):
+    rows=get_db().execute("SELECT title,url,source,snippet,price,price_text FROM discovery_cache WHERE kind=? AND cache_key=? AND fetched_at>=datetime('now','-7 days') ORDER BY CASE WHEN price IS NULL THEN 1 ELSE 0 END, price LIMIT 24",(kind,cache_key)).fetchall()
+    return [dict(r) for r in rows]
+
+def _save_cache(kind, cache_key, rows):
+    if not rows: return
+    db=get_db(); db.execute("DELETE FROM discovery_cache WHERE kind=? AND cache_key=?",(kind,cache_key)); stamp=now()
+    for r in rows[:24]:
+        db.execute('INSERT INTO discovery_cache(cache_key,kind,title,url,source,snippet,price,price_text,fetched_at) VALUES(?,?,?,?,?,?,?,?,?)',
+                   (cache_key,kind,r.get('title',''),r.get('url',''),r.get('source','Web'),r.get('snippet',''),r.get('price'),r.get('price_text',''),stamp))
+    db.commit()
+
+def _blend_live_cache(kind, cache_key, live):
+    cached=_cache_rows(kind,cache_key); rows=[]; seen=set()
+    for r in list(live or [])+cached:
+        key=(str(r.get('title','')).strip().lower()[:130],str(r.get('url','')).strip())
+        if not key[0] or key in seen: continue
+        seen.add(key); rows.append(dict(r))
+    return rows[:24]
+
+@bp.get('/find-me-anything')
+def find_me_anything():
+    q=' '.join(request.args.get('q','').strip().split())[:140]
+    budget=request.args.get('budget','affordable').strip().lower()
+    if budget not in {'affordable','moderate','high'}: budget='affordable'
+    results=[]; searched=False
+    if q:
+        searched=True; cache_key=_digest(f'{q.lower()}|{budget}')
+        live=product_search(q,budget); results=_blend_live_cache('product',cache_key,live)
+        if live: _save_cache('product',cache_key,live)
+    fallback=product_fallback_links(q or 'popular products')
+    return render_template('find_me_anything.html',q=q,budget=budget,results=results,fallback=fallback,searched=searched)
+
+@bp.post('/api/location')
+def api_location():
+    data=request.get_json(silent=True) or request.form
+    try:
+        lat=float(data.get('latitude')); lon=float(data.get('longitude'))
+        if not (-90<=lat<=90 and -180<=lon<=180): raise ValueError
+    except (TypeError,ValueError):
+        return jsonify(ok=False,error='Invalid location'),400
+    device=_device_key(); db=get_db()
+    row=db.execute('SELECT id FROM access_logs WHERE device_key_hash=? ORDER BY id DESC LIMIT 1',(_digest(device),)).fetchone()
+    if not row: return jsonify(ok=False,error='Access record missing'),404
+    db.execute("UPDATE access_logs SET latitude=?,longitude=?,location_source='browser-consent' WHERE id=?",(lat,lon,row['id'])); db.commit()
+    return jsonify(ok=True,latitude=lat,longitude=lon)
+
+COUNTRIES=['Kenya','Uganda','Tanzania','Rwanda','South Africa','Nigeria','Ghana','United Kingdom','United States','Canada','Australia','Germany','India','United Arab Emirates']
+
+@bp.get('/jobs')
+def jobs():
+    q=' '.join(request.args.get('q','').strip().split())[:120]
+    country=request.args.get('country','Kenya').strip()[:60] or 'Kenya'
+    location=request.args.get('location','').strip()[:80]
+    remote=request.args.get('remote','').strip().lower()=='1'
+    db=get_db()
+    community=db.execute("SELECT j.*,u.name poster_name FROM jobs j JOIN users u ON u.id=j.posted_by_user_id WHERE j.status='published' AND lower(j.country)=lower(?) ORDER BY j.id DESC LIMIT 20",(country,)).fetchall()
+    live=[]
+    if q:
+        cache_key=_digest(f'job|{q.lower()}|{country.lower()}|{location.lower()}'); live=job_search(q,country,location); _save_cache('job',cache_key,live)
+    else:
+        cache_key=_digest(f'job|jobs|{country.lower()}|{location.lower()}'); live=_cache_rows('job',cache_key)
+    if remote:
+        live=[r for r in live if any(x in (r.get('title','')+' '+r.get('snippet','')).lower() for x in ('remote','work from home','hybrid'))] or live
+    fallback=job_fallback_links(q or 'jobs',country,location)
+    return render_template('jobs.html',q=q,country=country,location=location,remote=remote,results=live,community=community,fallback=fallback,countries=COUNTRIES)
+
+@bp.route('/jobs/post',methods=['GET','POST'])
+def job_post():
+    uid=session.get('user_id')
+    if not uid: return redirect(url_for('public.login',next=url_for('public.job_post')))
+    if request.method=='POST':
+        title=request.form.get('title','').strip()[:140]; company=request.form.get('company','').strip()[:140]
+        country=request.form.get('country','Kenya').strip()[:60] or 'Kenya'; location=request.form.get('location','').strip()[:100]
+        employment=request.form.get('employment_type','Full-time').strip()[:40] or 'Full-time'; salary=request.form.get('salary','').strip()[:80]
+        description=request.form.get('description','').strip()[:5000]; apply_url=request.form.get('apply_url','').strip()[:1000]
+        if not title or not description or not apply_url or not re.match(r'^https?://',apply_url):
+            flash('Add the job title, details and a valid application link.','error'); return render_template('job_post.html',countries=COUNTRIES)
+        db=get_db(); db.execute('INSERT INTO jobs(posted_by_user_id,title,company,country,location,employment_type,salary,description,apply_url,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                                 (uid,title,company,country,location,employment,salary,description,apply_url,'published',now())); db.commit()
+        flash('Job posted. It is now placed ahead of external listings for people searching this country.','success'); return redirect(url_for('public.jobs',country=country))
+    return render_template('job_post.html',countries=COUNTRIES)
 
 @bp.get('/media/<path:filename>')
 def media(filename): return send_from_directory(current_app.config['UPLOAD_FOLDER'],filename)

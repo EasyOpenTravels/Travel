@@ -42,6 +42,28 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE TABLE IF NOT EXISTS visits (
  id INTEGER PRIMARY KEY AUTOINCREMENT, visitor_key TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS access_logs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, visitor_key_hash TEXT NOT NULL, device_key_hash TEXT NOT NULL,
+ phone TEXT DEFAULT '', path TEXT NOT NULL, ip_address TEXT DEFAULT '', user_agent TEXT DEFAULT '',
+ latitude REAL, longitude REAL, location_source TEXT DEFAULT '', created_at TEXT NOT NULL,
+ FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_access_logs_device ON access_logs(device_key_hash);
+CREATE INDEX IF NOT EXISTS idx_access_logs_user ON access_logs(user_id);
+CREATE TABLE IF NOT EXISTS discovery_cache (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, cache_key TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
+ url TEXT NOT NULL, source TEXT NOT NULL, snippet TEXT DEFAULT '', price REAL, price_text TEXT DEFAULT '',
+ fetched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_cache_key ON discovery_cache(cache_key, fetched_at);
+CREATE TABLE IF NOT EXISTS jobs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, posted_by_user_id INTEGER NOT NULL, title TEXT NOT NULL, company TEXT DEFAULT '',
+ country TEXT NOT NULL, location TEXT DEFAULT '', employment_type TEXT DEFAULT 'Full-time', salary TEXT DEFAULT '',
+ description TEXT NOT NULL, apply_url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'published', created_at TEXT NOT NULL,
+ FOREIGN KEY(posted_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
 CREATE TABLE IF NOT EXISTS destinations (
  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE NOT NULL, title TEXT NOT NULL, subtitle TEXT NOT NULL,
  vibe TEXT NOT NULL, price_from INTEGER NOT NULL DEFAULT 0, cover_image TEXT NOT NULL, credit TEXT DEFAULT '',
@@ -450,6 +472,22 @@ def init_db(app):
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
+
+        # Access logging was added after the original visitor-only analytics.
+        if 'access_logs' not in {r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS access_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, visitor_key_hash TEXT NOT NULL, device_key_hash TEXT NOT NULL, phone TEXT DEFAULT '', path TEXT NOT NULL, ip_address TEXT DEFAULT '', user_agent TEXT DEFAULT '', latitude REAL, longitude REAL, location_source TEXT DEFAULT '', created_at TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_device ON access_logs(device_key_hash);
+            CREATE INDEX IF NOT EXISTS idx_access_logs_user ON access_logs(user_id);
+            """)
+        if 'discovery_cache' not in {r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS discovery_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_key TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, source TEXT NOT NULL, snippet TEXT DEFAULT '', price REAL, price_text TEXT DEFAULT '', fetched_at TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_discovery_cache_key ON discovery_cache(cache_key, fetched_at);
+            CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, posted_by_user_id INTEGER NOT NULL, title TEXT NOT NULL, company TEXT DEFAULT '', country TEXT NOT NULL, location TEXT DEFAULT '', employment_type TEXT DEFAULT 'Full-time', salary TEXT DEFAULT '', description TEXT NOT NULL, apply_url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'published', created_at TEXT NOT NULL, FOREIGN KEY(posted_by_user_id) REFERENCES users(id) ON DELETE CASCADE);
+            CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
+            """)
 
         if 'segments_json' not in _column_names(db, 'journal_entries'):
             db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")

@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="finder-page anything-page">
+  <div class="finder-hero">
+    <div class="finder-kicker">THE INTERNET, ONE SEARCH BOX</div>
+    <h1>Find me<br><em>anything.</em></h1>
+    <p>Say it normally. A phone, Nike shoes, reading glasses, bread, a car model — we hunt across listings and marketplaces, then put the door in front of you.</p>
+    <form class="finder-search" method="get" action="{{ url_for('public.find_me_anything') }}">
+      <input name="q" value="{{ q }}" autofocus autocomplete="off" placeholder="Try: iPhone 15, black sneakers, Toyota Harrier…" aria-label="What are you looking for?">
+      <input type="hidden" name="budget" id="budgetValue" value="{{ budget }}">
+      <button>Hunt it</button>
+    </form>
+    <div class="finder-chips" aria-label="Quick searches">
+      {% for item in ['phone','iPhone','shoes','eye glasses','bread','Toyota Harrier','laptop','fridge'] %}
+      <a href="{{ url_for('public.find_me_anything',q=item,budget=budget) }}">{{ item }}</a>
+      {% endfor %}
+    </div>
+    <div class="budget-switch" role="group" aria-label="Price range">
+      <button type="button" data-budget="affordable" class="{{ 'active' if budget=='affordable' else '' }}">Affordable</button>
+      <button type="button" data-budget="moderate" class="{{ 'active' if budget=='moderate' else '' }}">Moderate</button>
+      <button type="button" data-budget="high" class="{{ 'active' if budget=='high' else '' }}">High-end</button>
+    </div>
+  </div>
+
+  {% if results %}
+  <section class="hunt-results">
+    <div class="finder-section-head"><div><span>LIVE + CACHED</span><h2>Here’s what the hunt found.</h2></div><small>{{ results|length }} leads · prices vary by seller, delivery and time</small></div>
+    <div class="result-grid">
+      {% for r in results %}
+      <article class="result-card">
+        <div class="result-top"><span>{{ r.source }}</span>{% if r.price_text %}<b>{{ r.price_text }}</b>{% else %}<b class="price-soft">Price on listing</b>{% endif %}</div>
+        <h3>{{ r.title }}</h3>
+        <p>{{ r.snippet|truncate(170) }}</p>
+        <a class="result-open" href="{{ r.url }}" target="_blank" rel="noopener">Open listing ↗</a>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% elif searched %}
+  <section class="finder-empty">
+    <div class="finder-empty-icon">↗</div><div><span>THE HUNT IS STILL USEFUL</span><h2>Live listings were shy.</h2><p>We widened the search path. Jump into any marketplace below and the exact search is already filled in.</p></div>
+  </section>
+  {% endif %}
+
+  <section class="source-strip"><div><span>ALWAYS HAVE A WAY IN</span><h2>Open a marketplace search.</h2></div><div class="source-links">{% for f in fallback %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.source }} <span>↗</span></a>{% endfor %}</div></section>
+  <section class="finder-footnote"><b>No account needed.</b> Search first. Create an account only when another feature actually needs to remember you.</section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+const budgetButtons=document.querySelectorAll('[data-budget]');const budgetValue=document.getElementById('budgetValue');budgetButtons.forEach(b=>b.addEventListener('click',()=>{budgetValue.value=b.dataset.budget;budgetButtons.forEach(x=>x.classList.toggle('active',x===b));const form=b.closest('.finder-hero').querySelector('form');if(form.querySelector('input[name="q"]').value.trim())form.submit();}));
+</script>
+{% endblock %}

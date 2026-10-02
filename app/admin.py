@@ -55,6 +55,9 @@ def dashboard():
         'groups':db.execute('SELECT COUNT(*) n FROM group_retreats WHERE active=1').fetchone()['n'],
         'group_pending':db.execute("SELECT COUNT(*) n FROM group_retreats WHERE status='pending' AND active=1").fetchone()['n'],
         'payment_intents':db.execute('SELECT COUNT(*) n FROM payment_intents').fetchone()['n'],
+        'accesses_24h':db.execute("SELECT COUNT(*) n FROM access_logs WHERE created_at>=datetime('now','-1 day')").fetchone()['n'],
+        'devices_24h':db.execute("SELECT COUNT(DISTINCT device_key_hash) n FROM access_logs WHERE created_at>=datetime('now','-1 day')").fetchone()['n'],
+        'jobs':db.execute("SELECT COUNT(*) n FROM jobs WHERE status='published'").fetchone()['n'],
     }
     rows={r['key']:r['value'] for r in db.execute('SELECT key,value FROM settings').fetchall()}
     trips=db.execute('SELECT * FROM trips ORDER BY date').fetchall(); destinations=db.execute('SELECT * FROM destinations ORDER BY sort_order,id').fetchall(); posts=db.execute('SELECT * FROM posts ORDER BY id DESC').fetchall(); services=db.execute('SELECT * FROM services ORDER BY sort_order,id').fetchall(); service_requests=db.execute('SELECT sr.*,s.title FROM service_requests sr JOIN services s ON s.id=sr.service_id ORDER BY sr.id DESC LIMIT 12').fetchall()
@@ -191,6 +194,31 @@ def users():
     g=guard()
     if g:return g
     return render_template('admin_users.html',users=get_db().execute('SELECT * FROM users ORDER BY id DESC').fetchall())
+@admin_bp.get('/access')
+def access():
+    g=guard()
+    if g:return g
+    db=get_db()
+    rows=db.execute("SELECT a.*,u.name user_name,u.email user_email,COALESCE(NULLIF(a.phone,''),u.phone,'') shown_phone FROM access_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 300").fetchall()
+    devices=db.execute("SELECT device_key_hash,MAX(created_at) last_seen,COUNT(*) hits,COUNT(DISTINCT COALESCE(user_id,0)) identities,MAX(phone) phone,MAX(latitude) latitude,MAX(longitude) longitude FROM access_logs GROUP BY device_key_hash ORDER BY last_seen DESC LIMIT 120").fetchall()
+    return render_template('admin_access.html',rows=rows,devices=devices)
+
+@admin_bp.get('/jobs')
+def jobs():
+    g=guard()
+    if g:return g
+    rows=get_db().execute("SELECT j.*,u.name poster_name,u.phone poster_phone,u.email poster_email FROM jobs j JOIN users u ON u.id=j.posted_by_user_id ORDER BY j.id DESC").fetchall()
+    return render_template('admin_jobs.html',jobs=rows)
+
+@admin_bp.post('/jobs/<int:job_id>/status')
+def job_status(job_id):
+    g=guard()
+    if g:return g
+    status=request.form.get('status','published')
+    if status not in {'published','hidden'}: status='hidden'
+    db=get_db(); db.execute('UPDATE jobs SET status=? WHERE id=?',(status,job_id)); db.commit()
+    return redirect(url_for('admin.jobs'))
+
 @admin_bp.get('/tickets')
 def tickets():
     g=guard()

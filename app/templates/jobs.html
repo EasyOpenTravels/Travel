@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="finder-page jobs-page">
+  <div class="finder-hero jobs-hero">
+    <div class="finder-kicker">JOB HUNT · YOUR COUNTRY · YOUR LOCATION</div>
+    <h1>Find your<br><em>next job.</em></h1>
+    <p>Pick a country, let location help narrow the search, and we’ll pull together community posts plus jobs we can reach across job boards and indexed listings.</p>
+    <form class="job-search" method="get" action="{{ url_for('public.jobs') }}">
+      <input name="q" value="{{ q }}" placeholder="Role or skill: driver, accountant, developer, waiter…" autocomplete="off">
+      <input name="country" value="{{ country }}" list="countryList" placeholder="Country" aria-label="Country" required><datalist id="countryList">{% for c in countries %}<option value="{{ c }}">{% endfor %}</datalist>
+      <input name="location" value="{{ location }}" placeholder="City / area (optional)">
+      <label class="job-toggle"><input type="checkbox" name="remote" value="1" {{ 'checked' if remote else '' }}> Remote too</label>
+      <button>Find jobs</button>
+    </form>
+    <button class="location-button" type="button" onclick="useJobLocation()">◎ Use my location</button>
+    <span id="locationStatus" class="location-status">Location is optional and only shared when you tap the button.</span>
+  </div>
+
+  {% if community %}
+  <section class="community-jobs">
+    <div class="finder-section-head"><div><span>POSTED HERE · SHOW FIRST</span><h2>People are hiring on Open Road.</h2></div><a class="button primary small" href="{{ url_for('public.job_post') }}">Post a job</a></div>
+    <div class="job-list">{% for j in community %}<article class="job-card community"><div><span class="job-badge">OPEN ROAD</span><h3>{{ j.title }}</h3><p>{{ j.company or 'Hiring now' }} · {{ j.location or j.country }} · {{ j.employment_type }}</p>{% if j.salary %}<small>{{ j.salary }}</small>{% endif %}</div><a class="result-open" href="{{ j.apply_url }}" target="_blank" rel="noopener">Apply ↗</a></article>{% endfor %}</div>
+  </section>
+  {% endif %}
+
+  {% if results %}
+  <section class="hunt-results">
+    <div class="finder-section-head"><div><span>LIVE + INDEXED</span><h2>Jobs we could reach.</h2></div><small>{{ results|length }} leads</small></div>
+    <div class="job-list">{% for r in results %}<article class="job-card"><div><span class="job-source">{{ r.source }}</span><h3>{{ r.title }}</h3><p>{{ r.snippet|truncate(200) }}</p></div><a class="result-open" href="{{ r.url }}" target="_blank" rel="noopener">Open ↗</a></article>{% endfor %}</div>
+  </section>
+  {% else %}
+  <section class="finder-empty"><div class="finder-empty-icon">⌁</div><div><span>NO DEAD END</span><h2>Start with a role.</h2><p>Or jump straight to a job board below. There is always a search door even when a remote board is quiet.</p></div></section>
+  {% endif %}
+
+  <section class="source-strip"><div><span>MORE DOORS</span><h2>Search the boards directly.</h2></div><div class="source-links">{% for f in fallback %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.source }} <span>↗</span></a>{% endfor %}</div></section>
+  <section class="job-post-call"><div><span>EMPLOYER?</span><h2>Post a job where local users see it first.</h2><p>Posting requires an Open Road ID so the hiring post has an accountable owner.</p></div><a class="button primary" href="{{ url_for('public.job_post') }}">Post a job</a></section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+function useJobLocation(){const status=document.getElementById('locationStatus');if(!navigator.geolocation){status.textContent='This browser does not expose location.';return;}status.textContent='Asking your browser for permission…';navigator.geolocation.getCurrentPosition(async p=>{document.querySelector('input[name="location"]').value=`${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`;status.textContent='Location added to this search. It is stored only as a consented access signal.';try{await fetch('{{ url_for('public.api_location') }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({latitude:p.coords.latitude,longitude:p.coords.longitude})})}catch(e){}},()=>status.textContent='Location was not shared. You can still search by country and city.',{enableHighAccuracy:false,maximumAge:300000,timeout:8000});}
+</script>
+{% endblock %}
