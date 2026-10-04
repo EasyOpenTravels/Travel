@@ -1,7 +1,8 @@
-import os, secrets
+import os, secrets, logging
 from pathlib import Path
-from flask import Flask, request
-from .db import init_db
+from flask import Flask, request, session, render_template
+from .db import init_db, get_db
+from .system_errors import record_error, ensure_error_log_table, DatabaseErrorHandler
 
 def _secret(path):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,15 +32,37 @@ def create_app():
     )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
+    with app.app_context():
+        db = get_db()
+        ensure_error_log_table(db)
+        db.commit()
+    if not any(isinstance(h, DatabaseErrorHandler) for h in app.logger.handlers):
+        app.logger.addHandler(DatabaseErrorHandler())
+    app.logger.setLevel(logging.ERROR)
     init_db(app)
     from .routes import bp
     from .admin import admin_bp
     app.register_blueprint(bp)
     app.register_blueprint(admin_bp, url_prefix='/'+app.config['ADMIN_PATH'])
     @app.errorhandler(404)
-    def not_found(_): return __import__('flask').render_template('not_found.html'), 404
+    def not_found(err):
+        record_error(status_code=404,error_type=type(err).__name__,message=str(err),exc=None)
+        return render_template('not_found.html'), 404
+
     @app.errorhandler(500)
-    def server_error(_): return __import__('flask').render_template('error.html'), 500
+    def server_error(err):
+        record_error(status_code=500,error_type=type(err).__name__,message=str(err),exc=err)
+        return render_template('error.html'), 500
+
+    @app.errorhandler(Exception)
+    def unhandled_exception(err):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(err, HTTPException):
+            record_error(status_code=err.code or 500,error_type=type(err).__name__,message=str(err),exc=None)
+            return err
+        record_error(status_code=500,error_type=type(err).__name__,message=str(err),exc=err)
+        return render_template('error.html'), 500
+
     @app.after_request
     def headers(resp):
         resp.headers['X-Content-Type-Options']='nosniff'; resp.headers['X-Frame-Options']='DENY'; resp.headers['Referrer-Policy']='strict-origin-when-cross-origin'

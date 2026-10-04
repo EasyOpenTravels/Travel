@@ -12,14 +12,25 @@ import re
 from urllib.parse import quote_plus, urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
+from .system_errors import record_error
 
+# Kenya/local-first. International doors remain available, but never outrank a usable local listing.
 PRODUCT_SOURCES = [
-    ("Jumia", "jumia.co.ke", "https://www.jumia.co.ke/catalog/?q={q}"),
+    ("Jumia Kenya", "jumia.co.ke", "https://www.jumia.co.ke/catalog/?q={q}"),
+    ("PigiaMe Kenya", "pigiame.co.ke", "https://www.pigiame.co.ke/search?query={q}"),
+    ("Kilimall Kenya", "kilimall.co.ke", "https://www.kilimall.co.ke/new/commoditysearch?keyword={q}"),
+    ("Jiji Kenya", "jiji.co.ke", "https://jiji.co.ke/search?query={q}"),
     ("Alibaba", "alibaba.com", "https://www.alibaba.com/trade/search?SearchText={q}"),
     ("AliExpress", "aliexpress.com", "https://www.aliexpress.com/wholesale?SearchText={q}"),
-    ("Kilimall", "kilimall.co.ke", "https://www.kilimall.co.ke/new/commoditysearch?keyword={q}"),
-    ("Jiji", "jiji.co.ke", "https://jiji.co.ke/search?query={q}"),
 ]
+
+COUNTRY_LOCAL_DOMAINS = {
+    'kenya': ('.co.ke', '.ke'), 'uganda': ('.co.ug', '.ug'), 'tanzania': ('.co.tz', '.tz'),
+    'rwanda': ('.rw',), 'nigeria': ('.ng', '.com.ng'), 'ghana': ('.gh',),
+    'south africa': ('.co.za', '.za'), 'united kingdom': ('.co.uk', '.uk'),
+    'united states': ('.com',), 'canada': ('.ca',), 'australia': ('.com.au', '.au'),
+    'germany': ('.de',), 'india': ('.in',), 'united arab emirates': ('.ae',),
+}
 
 JOB_SOURCES = [
     ("LinkedIn Jobs", "linkedin.com/jobs", "https://www.linkedin.com/jobs/search/?keywords={q}&location={loc}"),
@@ -65,7 +76,8 @@ def search_rss(query, limit=6):
         with urlopen(req, timeout=6) as res:
             raw = res.read()
         root = ET.fromstring(raw)
-    except Exception:
+    except Exception as exc:
+        record_error(status_code=502,error_type='RemoteSearchError',message=str(exc),exc=exc,context='RSS/web connector request failed')
         return []
     out = []
     for item in root.findall('.//item')[:limit]:
@@ -85,46 +97,71 @@ def _source_search(source, domain, q, budget_words=""):
     return source, domain, rows
 
 
-def product_search(query, budget="affordable"):
-    words = {"affordable": "cheap budget deal", "moderate": "best value", "high": "premium high end"}.get(budget, "best deal")
+def _local_score(row, country):
+    c = (country or 'Kenya').strip().lower()
+    net = urlparse(row.get('url', '')).netloc.lower()
+    domains = COUNTRY_LOCAL_DOMAINS.get(c, ())
+    # Explicit Kenyan/other country marketplace sources always get the local tier.
+    return 0 if any(net.endswith(d) or d in net for d in domains) else 1
+
+
+def product_search(query, budget="affordable", country="Kenya", location=""):
+    words = {"affordable": "cheap budget deal low price", "moderate": "best value mid range", "high": "premium high end"}.get(budget, "best deal")
+    context = ' '.join(x for x in [query, country, location] if x).strip()
     rows = []
-    with ThreadPoolExecutor(max_workers=len(PRODUCT_SOURCES) + 1) as pool:
-        futures = [pool.submit(_source_search, source, domain, query, words) for source, domain, _ in PRODUCT_SOURCES]
-        futures.append(pool.submit(lambda: ("Web", "the-web", search_rss(f"{query} {words}", 8))))
+    with ThreadPoolExecutor(max_workers=len(PRODUCT_SOURCES) + 2) as pool:
+        futures = [pool.submit(_source_search, source, domain, context, words) for source, domain, _ in PRODUCT_SOURCES]
+        suffixes=COUNTRY_LOCAL_DOMAINS.get((country or 'Kenya').strip().lower(),())
+        futures.append(pool.submit(lambda: ("Local web", suffixes[0] if suffixes else 'local', search_rss(f"site:{suffixes[0]} {context} {words}" if suffixes else f"{context} {country} {words}", 10))))
+        futures.append(pool.submit(lambda: ("Web", "the-web", search_rss(f"{context} {words}", 10))))
         for fut in as_completed(futures):
             try:
                 source, domain, found = fut.result()
-            except Exception:
+            except Exception as exc:
+                record_error(status_code=502,error_type='ConnectorWorkerError',message=str(exc),exc=exc,context='product search worker failed')
                 continue
             for row in found:
                 row["source"] = source
                 row["domain"] = domain
                 rows.append(row)
-    seen = set()
-    unique = []
+    seen = set(); unique = []
     for row in rows:
-        key = (row["title"].lower()[:120], urlparse(row["url"]).netloc.lower())
-        if key in seen:
+        key = (row.get("title", "").lower()[:120], urlparse(row.get("url", "")).netloc.lower())
+        if key in seen or not key[0]:
             continue
-        seen.add(key)
-        unique.append(row)
-    # KSh listings can be compared directly; entries with no detected price stay visible.
-    unique.sort(key=lambda r: (0 if r.get("price") is not None else 1, r.get("price") if r.get("price") is not None else 10**18))
-    return unique[:24]
+        seen.add(key); unique.append(row)
+    priced=[r for r in unique if r.get('price') is not None]
+    median=sorted(r['price'] for r in priced)[len(priced)//2] if priced else None
+    source_rank={name:i for i,(name,_,_) in enumerate(PRODUCT_SOURCES)}
+    def price_rank(r):
+        p=r.get('price')
+        if p is None: return 10**18
+        if budget=='high': return -p
+        if budget=='moderate' and median is not None: return abs(p-median)
+        return p
+    unique.sort(key=lambda r: (_local_score(r,country), 0 if r.get('price') is not None else 1, price_rank(r), source_rank.get(r.get('source'),999)))
+    return unique[:30]
 
 
-def product_fallback_links(query):
+def product_fallback_links(query, country='Kenya'):
     encoded = quote_plus(query)
-    links = [{"source": s, "url": template.format(q=encoded)} for s, _, template in PRODUCT_SOURCES]
-    links.append({"source": "Search the web", "url": "https://www.google.com/search?q=" + encoded})
+    links = []
+    local_suffix=(COUNTRY_LOCAL_DOMAINS.get((country or 'Kenya').strip().lower(),()) or ('',))[0]
+    if local_suffix:
+        links.append({"source": f"Local {country} web", "url": "https://www.google.com/search?q=" + quote_plus(f"site:{local_suffix} {query}")})
+    sources = PRODUCT_SOURCES if (country or '').strip().lower() in {'kenya','ke'} else PRODUCT_SOURCES[4:]
+    for source, _, template in sources:
+        links.append({"source": source, "url": template.format(q=encoded)})
+    links.append({"source": f"Search {country} on the web", "url": "https://www.google.com/search?q=" + quote_plus(query + ' ' + country)})
     return links
 
 
 def job_search(query, country, location=""):
     loc = location or country or ""
-    sources = list(JOB_SOURCES)
+    sources = []
     if (country or "").strip().lower() in {"kenya", "ke"}:
         sources += KENYA_JOB_SOURCES
+    sources += list(JOB_SOURCES)
     rows = []
     with ThreadPoolExecutor(max_workers=len(sources) + 1) as pool:
         futures = []
@@ -134,7 +171,8 @@ def job_search(query, country, location=""):
         for fut in as_completed(futures):
             try:
                 source, domain, found = fut.result()
-            except Exception:
+            except Exception as exc:
+                record_error(status_code=502,error_type='ConnectorWorkerError',message=str(exc),exc=exc,context='job search worker failed')
                 continue
             for row in found:
                 row["source"] = source
@@ -148,17 +186,23 @@ def job_search(query, country, location=""):
             continue
         seen.add(key)
         unique.append(row)
-    return unique[:30]
+    source_rank={name:i for i,(name,_,_) in enumerate(KENYA_JOB_SOURCES + JOB_SOURCES)}
+    unique.sort(key=lambda r: (_local_score(r,country), source_rank.get(r.get('source'),999)))
+    return unique[:36]
 
 
 def job_fallback_links(query, country, location=""):
-    q = quote_plus(query)
+    raw_query = str(query or '').strip()
+    q = quote_plus(raw_query)
     loc = quote_plus(location or country or "")
-    sources = list(JOB_SOURCES)
-    if (country or "").strip().lower() in {"kenya", "ke"}:
-        sources += KENYA_JOB_SOURCES
     links = []
+    if (country or '').strip().lower() in {'kenya','ke'}:
+        sources = KENYA_JOB_SOURCES + JOB_SOURCES
+    else:
+        sources = JOB_SOURCES
     for source, _, template in sources:
         links.append({"source": source, "url": template.format(q=q, loc=loc)})
-    links.append({"source": "Search the web", "url": "https://www.google.com/search?q=" + q + "+jobs+" + quote_plus(country)})
+    local_url="https://www.google.com/search?q=" + quote_plus(raw_query + ' jobs ' + country + ' ' + (location or ''))
+    links.insert(0, {"source": f"Local {country} jobs", "url": local_url})
+    links.append({"source": "Search the wider web", "url": "https://www.google.com/search?q=" + quote_plus(raw_query + ' jobs ' + country)})
     return links

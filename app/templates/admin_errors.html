@@ -1,0 +1,25 @@
+{% extends 'admin_base.html' %}{% block content %}
+<section class="admin-wrap">
+  <div class="admin-hero"><div><div class="eyebrow">SYSTEM HEALTH</div><h1>System errors</h1><p class="micro">Server failures, missing pages, browser-side errors and explicitly logged application failures are kept here for diagnosis.</p></div><div class="admin-quick"><form method="post" action="{{ url_for('admin.clear_resolved_errors') }}"><button class="button secondary small" type="submit">Clear resolved</button></form></div></div>
+  <div class="admin-stats"><div><b>{{ summary.total or 0 }}</b><span>total recorded</span></div><div><b>{{ summary.server or 0 }}</b><span>server errors</span></div><div><b>{{ summary.not_found or 0 }}</b><span>404 errors</span></div><div><b>{{ summary.open or 0 }}</b><span>unresolved</span></div></div>
+  <div class="admin-panel">
+    <div class="panel-head"><div><span class="eyebrow">LATEST 250</span><h2>What went wrong</h2></div></div>
+    {% for e in errors %}
+      <article class="admin-row" style="display:block;padding:14px 0;border-bottom:1px solid rgba(18,33,43,.09)">
+        <div style="display:flex;gap:10px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap">
+          <div><b>#{{ e.id }} · {{ e.error_type }}</b><span>{{ e.occurred_at }} · {{ e.method }} {{ e.path }} · HTTP {{ e.status_code }}{% if e.resolved %} · resolved{% endif %}</span></div>
+          {% if not e.resolved %}<form method="post" action="{{ url_for('admin.resolve_system_error',error_id=e.id) }}"><button class="button secondary small" type="submit">Resolve</button></form>{% endif %}
+        </div>
+        <p style="margin:.55rem 0 0"><strong>{{ e.message }}</strong></p>
+        {% if e.context %}<p class="micro" style="margin:.35rem 0">Context: {{ e.context }}</p>{% endif %}
+        <details style="margin-top:.5rem"><summary>Technical details</summary><pre style="white-space:pre-wrap;overflow:auto;font-size:12px">{{ e.traceback or 'No traceback supplied.' }}
+
+User ID: {{ e.user_id or '—' }}
+Visitor: {{ e.visitor_key or '—' }}
+IP: {{ e.ip_address or '—' }}
+Browser: {{ e.user_agent or '—' }}</pre></details>
+      </article>
+    {% else %}<div class="empty">No system errors have been recorded yet.</div>{% endfor %}
+  </div>
+</section>
+{% endblock %}

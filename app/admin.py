@@ -1,9 +1,10 @@
-import os, re, shutil, sqlite3, hmac, secrets
+import os, re, shutil, sqlite3, hmac, secrets, tempfile, zipfile, json, pathlib
 from datetime import datetime, timezone
 from flask import Blueprint,current_app,render_template,request,redirect,url_for,session,flash,send_file,abort,g
 from werkzeug.utils import secure_filename
-from .db import get_db,SCHEMA
+from .db import get_db,SCHEMA,ensure_schema_upgrades
 from .security import now, encrypt_secret, verify_pin, hash_pin
+from .system_errors import record_error, ensure_error_log_table
 from .qr import make_qr_bytes
 import io
 
@@ -246,27 +247,183 @@ def upload():
     stem,ext=fn.rsplit('.',1); fn=f'{stem}-{secrets.token_hex(3)}.{ext}' if os.path.exists(os.path.join(current_app.config['UPLOAD_FOLDER'],fn)) else fn
     f.save(os.path.join(current_app.config['UPLOAD_FOLDER'],fn)); flash('Uploaded. Use this URL in a trip/place/post image field: /media/'+fn,'success'); return redirect(url_for('admin.dashboard'))
 
+def _copy_database_snapshot(source_path, target_path):
+    src=sqlite3.connect(source_path, timeout=60)
+    try:
+        dst=sqlite3.connect(target_path, timeout=60)
+        try:
+            src.backup(dst)
+            dst.commit()
+            check=dst.execute('PRAGMA integrity_check').fetchone()[0]
+            if str(check).lower()!='ok':
+                raise RuntimeError('Database snapshot failed integrity check: '+str(check))
+        finally:
+            dst.close()
+    finally:
+        src.close()
+
+
+def _validate_and_normalize_backup(source_path):
+    conn=sqlite3.connect(source_path, timeout=60)
+    try:
+        result=conn.execute('PRAGMA integrity_check').fetchone()[0]
+        if str(result).lower()!='ok':
+            raise RuntimeError('The backup is corrupt or incomplete (integrity check: %s).' % result)
+        conn.row_factory=sqlite3.Row
+        ensure_schema_upgrades(conn)
+        result=conn.execute('PRAGMA integrity_check').fetchone()[0]
+        if str(result).lower()!='ok':
+            raise RuntimeError('The backup could not be upgraded safely (integrity check: %s).' % result)
+    finally:
+        conn.close()
+
+
 @admin_bp.get('/backup')
 def backup():
-    g=guard()
-    if g:return g
-    db=get_db(); db.execute('PRAGMA wal_checkpoint(FULL)'); db.commit(); path=current_app.config['DATABASE_PATH']; return send_file(path,as_attachment=True,download_name='open-road-adventures-backup.sqlite3',mimetype='application/x-sqlite3')
+    gate=guard()
+    if gate:return gate
+    db_path=current_app.config['DATABASE_PATH']
+    work=tempfile.mkdtemp(prefix='openroad-backup-')
+    db_copy=pathlib.Path(work)/'database.sqlite3'
+    zip_path=pathlib.Path(work)/'open-road-adventures-backup.zip'
+    try:
+        live=get_db()
+        try:
+            live.execute('PRAGMA wal_checkpoint(FULL)'); live.commit()
+        finally:
+            live.close(); g.pop('db',None)
+        _copy_database_snapshot(db_path,db_copy)
+        manifest={'format':'open-road-backup-v2','created_at':now(),'database':'database.sqlite3','uploads_included':True}
+        upload_root=pathlib.Path(current_app.config['UPLOAD_FOLDER'])
+        with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED) as z:
+            z.write(db_copy,'database.sqlite3')
+            z.writestr('manifest.json',json.dumps(manifest,indent=2))
+            if upload_root.exists():
+                for file in upload_root.rglob('*'):
+                    if file.is_file(): z.write(file,file.relative_to(upload_root).as_posix())
+        response=send_file(str(zip_path),as_attachment=True,download_name='open-road-adventures-backup.zip',mimetype='application/zip')
+        response.call_on_close(lambda: shutil.rmtree(work,ignore_errors=True))
+        return response
+    except Exception as exc:
+        shutil.rmtree(work,ignore_errors=True)
+        record_error(status_code=500,error_type='BackupExportError',message=str(exc),exc=exc,context='admin backup')
+        flash('Backup could not be created: '+str(exc),'error')
+        return redirect(url_for('admin.dashboard'))
+
 
 @admin_bp.post('/restore')
 def restore():
-    g=guard()
-    if g:return g
-    f=request.files.get('backup')
-    if not f: flash('Choose a SQLite backup.','error'); return redirect(url_for('admin.dashboard'))
-    temp=current_app.config['DATABASE_PATH']+'.restore'
+    gate=guard()
+    if gate:return gate
+    uploaded=request.files.get('backup')
+    if not uploaded or not uploaded.filename:
+        flash('Choose a backup file. ZIP backups and .sqlite3/.db files are accepted.','error')
+        return redirect(url_for('admin.dashboard'))
+    work=tempfile.mkdtemp(prefix='openroad-restore-')
+    name=uploaded.filename.lower()
     try:
-        f.save(temp); conn=sqlite3.connect(temp); conn.execute('PRAGMA integrity_check'); conn.executescript(SCHEMA); conn.commit(); conn.close();
-        conn=get_db(); conn.close(); g.pop('db', None); shutil.copy2(temp,current_app.config['DATABASE_PATH']); flash('Backup restored. Reload the dashboard.','success')
-    except Exception as exc: flash('Restore rejected: '+str(exc),'error')
+        incoming=pathlib.Path(work)/'incoming'
+        uploaded.save(str(incoming))
+        source=incoming
+        restored_uploads=None
+        if name.endswith('.zip') or zipfile.is_zipfile(incoming):
+            extract=pathlib.Path(work)/'unzipped'; extract.mkdir(parents=True,exist_ok=True)
+            with zipfile.ZipFile(incoming) as z:
+                safe=[]
+                for member in z.infolist():
+                    parts=pathlib.PurePosixPath(member.filename).parts
+                    if member.filename.startswith('/') or '..' in parts: continue
+                    safe.append(member)
+                db_member=next((m.filename for m in safe if m.filename=='database.sqlite3'),None)
+                if not db_member:
+                    db_member=next((m.filename for m in safe if m.filename.lower().endswith(('.sqlite3','.db','.sqlite'))),None)
+                if not db_member: raise ValueError('This ZIP does not contain a SQLite database.')
+                z.extractall(str(extract),members=safe)
+            source=extract/db_member
+            candidate=extract/'uploads'
+            if candidate.is_dir(): restored_uploads=candidate
+        elif not name.endswith(('.sqlite3','.db','.sqlite')):
+            raise ValueError('Unsupported backup format. Use the new ZIP backup or a SQLite .sqlite3/.db/.sqlite file.')
+
+        normalized=pathlib.Path(work)/'normalized.sqlite3'
+        _copy_database_snapshot(source,normalized)
+        _validate_and_normalize_backup(normalized)
+        # Make a safety snapshot before changing the active database.
+        # Keep a persistent rollback copy outside the temporary restore workspace.
+        backup_dir=pathlib.Path(current_app.instance_path)/'backups'; backup_dir.mkdir(parents=True,exist_ok=True)
+        safety=backup_dir/f"pre-restore-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.sqlite3"
+        current=current_app.config['DATABASE_PATH']
+        live=get_db()
+        try:
+            live.execute('PRAGMA wal_checkpoint(FULL)'); live.commit()
+        except Exception: pass
+        finally:
+            live.close(); g.pop('db',None)
+        _copy_database_snapshot(current,safety)
+        # Keep the newest five rollback snapshots only.
+        safety_files=sorted(backup_dir.glob('pre-restore-*.sqlite3'), key=lambda x:x.stat().st_mtime, reverse=True)
+        for old_safety in safety_files[5:]:
+            try: old_safety.unlink()
+            except OSError: pass
+
+        target=sqlite3.connect(current,timeout=60)
+        src=sqlite3.connect(normalized,timeout=60)
+        try:
+            src.backup(target)
+            target.commit()
+            check=target.execute('PRAGMA integrity_check').fetchone()[0]
+            if str(check).lower()!='ok': raise RuntimeError('Restored database failed integrity check: '+str(check))
+        finally:
+            src.close(); target.close()
+
+        from .db import init_db
+        init_db(current_app)
+        if restored_uploads:
+            dest=pathlib.Path(current_app.config['UPLOAD_FOLDER']); dest.mkdir(parents=True,exist_ok=True)
+            for file in restored_uploads.rglob('*'):
+                if file.is_file():
+                    rel=file.relative_to(restored_uploads); out=dest/rel; out.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(file,out)
+        flash('Backup restored successfully. It was integrity-checked and upgraded before activation.','success')
+    except Exception as exc:
+        record_error(status_code=500,error_type='BackupRestoreError',message=str(exc),exc=exc,context='admin restore')
+        flash('Restore rejected: '+str(exc),'error')
     finally:
-        try:os.remove(temp)
-        except OSError:pass
+        shutil.rmtree(work,ignore_errors=True)
     return redirect(url_for('admin.dashboard'))
+
+
+@admin_bp.get('/errors')
+def system_errors():
+    gate=guard()
+    if gate:return gate
+    try:
+        db=get_db(); ensure_error_log_table(db)
+        rows=db.execute('SELECT * FROM error_logs ORDER BY id DESC LIMIT 250').fetchall()
+        summary=db.execute('SELECT COUNT(*) total,SUM(CASE WHEN status_code>=500 THEN 1 ELSE 0 END) server,SUM(CASE WHEN status_code=404 THEN 1 ELSE 0 END) not_found,SUM(CASE WHEN resolved=0 THEN 1 ELSE 0 END) open FROM error_logs').fetchone()
+        return render_template('admin_errors.html',errors=rows,summary=summary)
+    except Exception as exc:
+        record_error(status_code=500,error_type='ErrorPageFailure',message=str(exc),exc=exc,context='admin system errors page')
+        return 'System errors page could not be loaded.',500
+
+
+@admin_bp.post('/errors/<int:error_id>/resolve')
+def resolve_system_error(error_id):
+    gate=guard()
+    if gate:return gate
+    db=get_db(); ensure_error_log_table(db)
+    db.execute('UPDATE error_logs SET resolved=1 WHERE id=?',(error_id,)); db.commit()
+    flash('System error marked resolved.','success')
+    return redirect(url_for('admin.system_errors'))
+
+
+@admin_bp.post('/errors/clear-resolved')
+def clear_resolved_errors():
+    gate=guard()
+    if gate:return gate
+    db=get_db(); ensure_error_log_table(db)
+    db.execute('DELETE FROM error_logs WHERE resolved=1'); db.commit()
+    flash('Resolved system errors cleared.','success')
+    return redirect(url_for('admin.system_errors'))
 
 
 @admin_bp.get('/events')

@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from flask import current_app, request, url_for
 
 from .db import get_db
+from .system_errors import record_error
 from .security import now, decrypt_secret
 
 
@@ -168,6 +169,7 @@ def start_payment(intent):
         db.commit()
         return db.execute('SELECT * FROM payment_intents WHERE id=?', (intent['id'],)).fetchone()
     except Exception as exc:
+        record_error(status_code=502,error_type='PaymentProviderError',message=str(exc),exc=exc,context='M-Pesa payment start/create')
         db.execute("UPDATE payment_intents SET status='failed',result_desc=?,updated_at=? WHERE id=?", (str(exc)[:500], now(), intent['id']))
         db.commit()
         raise
@@ -237,9 +239,8 @@ def _mark_paid(intent, values):
             db.execute("UPDATE group_members SET payment_status='approved' WHERE id=?", (intent['target_id'],))
         db.commit()
         return True
-    except Exception:
-        db.rollback()
-        raise
+    except Exception as exc:
+        db.rollback(); record_error(status_code=500,error_type='PaymentReconciliationError',message=str(exc),exc=exc,context='M-Pesa callback reconciliation'); raise
 
 
 def handle_mpesa_callback(payload):

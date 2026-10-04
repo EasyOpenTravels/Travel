@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS votes (
 CREATE TABLE IF NOT EXISTS visits (
  id INTEGER PRIMARY KEY AUTOINCREMENT, visitor_key TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS error_logs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, status_code INTEGER NOT NULL,
+ path TEXT NOT NULL, method TEXT NOT NULL, error_type TEXT NOT NULL, message TEXT NOT NULL,
+ traceback TEXT DEFAULT '', user_id INTEGER, visitor_key TEXT DEFAULT '', user_agent TEXT DEFAULT '', ip_address TEXT DEFAULT '',
+ resolved INTEGER NOT NULL DEFAULT 0, context TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_error_logs_occurred ON error_logs(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_error_logs_status ON error_logs(status_code);
 CREATE TABLE IF NOT EXISTS access_logs (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, visitor_key_hash TEXT NOT NULL, device_key_hash TEXT NOT NULL,
  phone TEXT DEFAULT '', path TEXT NOT NULL, ip_address TEXT DEFAULT '', user_agent TEXT DEFAULT '',
@@ -371,29 +379,7 @@ CREATE TABLE IF NOT EXISTS billing_receipts (
 
 '''
 
-def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(current_app.config['DATABASE_PATH'], timeout=30)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute('PRAGMA foreign_keys=ON')
-        g.db.execute('PRAGMA journal_mode=WAL')
-        g.db.execute('PRAGMA busy_timeout=30000')
-    return g.db
-
-def close_db(_=None):
-    db = g.pop('db', None)
-    if db:
-        db.close()
-
-def _column_names(db, table):
-    return {r['name'] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
-
-def init_db(app):
-    with app.app_context():
-        db = get_db()
-        db.executescript(SCHEMA)
-        # Safe upgrades from the earlier build.
-        upgrades = {
+UPGRADES = {
             'users': {
                 'remember_token': 'ALTER TABLE users ADD COLUMN remember_token TEXT',
                 'remember_until': 'ALTER TABLE users ADD COLUMN remember_until TEXT',
@@ -467,31 +453,48 @@ def init_db(app):
                 'format_style': "ALTER TABLE stuff_cards ADD COLUMN format_style TEXT NOT NULL DEFAULT 'square'",
             },
         }
-        for table, cols in upgrades.items():
+
+def ensure_schema_upgrades(db):
+    db.executescript(SCHEMA)
+    for table, cols in UPGRADES.items():
+        existing = _column_names(db, table)
+        for col, sql in cols.items():
+            if col not in existing:
+                db.execute(sql)
+                existing.add(col)
+    if 'segments_json' not in _column_names(db, 'journal_entries'):
+        db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
+    db.execute("DROP TABLE IF EXISTS error_logs_test")
+    db.commit()
+
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(current_app.config['DATABASE_PATH'], timeout=30)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute('PRAGMA foreign_keys=ON')
+        g.db.execute('PRAGMA journal_mode=WAL')
+        g.db.execute('PRAGMA busy_timeout=30000')
+    return g.db
+
+def close_db(_=None):
+    db = g.pop('db', None)
+    if db:
+        db.close()
+
+def _column_names(db, table):
+    return {r['name'] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
+
+def init_db(app):
+    with app.app_context():
+        db = get_db()
+        db.executescript(SCHEMA)
+        for table, cols in UPGRADES.items():
             existing = _column_names(db, table)
             for col, sql in cols.items():
                 if col not in existing:
                     db.execute(sql)
 
-        # Access logging was added after the original visitor-only analytics.
-        if 'access_logs' not in {r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
-            db.executescript("""
-            CREATE TABLE IF NOT EXISTS access_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, visitor_key_hash TEXT NOT NULL, device_key_hash TEXT NOT NULL, phone TEXT DEFAULT '', path TEXT NOT NULL, ip_address TEXT DEFAULT '', user_agent TEXT DEFAULT '', latitude REAL, longitude REAL, location_source TEXT DEFAULT '', created_at TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at);
-            CREATE INDEX IF NOT EXISTS idx_access_logs_device ON access_logs(device_key_hash);
-            CREATE INDEX IF NOT EXISTS idx_access_logs_user ON access_logs(user_id);
-            """)
-        if 'discovery_cache' not in {r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
-            db.executescript("""
-            CREATE TABLE IF NOT EXISTS discovery_cache (id INTEGER PRIMARY KEY AUTOINCREMENT, cache_key TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, source TEXT NOT NULL, snippet TEXT DEFAULT '', price REAL, price_text TEXT DEFAULT '', fetched_at TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS idx_discovery_cache_key ON discovery_cache(cache_key, fetched_at);
-            CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, posted_by_user_id INTEGER NOT NULL, title TEXT NOT NULL, company TEXT DEFAULT '', country TEXT NOT NULL, location TEXT DEFAULT '', employment_type TEXT DEFAULT 'Full-time', salary TEXT DEFAULT '', description TEXT NOT NULL, apply_url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'published', created_at TEXT NOT NULL, FOREIGN KEY(posted_by_user_id) REFERENCES users(id) ON DELETE CASCADE);
-            CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs(status, created_at);
-            """)
-
-        if 'segments_json' not in _column_names(db, 'journal_entries'):
-            db.execute("ALTER TABLE journal_entries ADD COLUMN segments_json TEXT DEFAULT ''")
-
+        # Access logging is part of the canonical schema.
         import secrets
         # Backfill scanner/access identifiers on databases created by earlier builds.
         if 'scanner_code' in _column_names(db, 'event_ticket_events'):

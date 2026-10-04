@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from xml.sax.saxutils import escape as xml_escape
 from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash, session, abort, jsonify, send_from_directory, send_file, Response
 from .db import get_db
+from .system_errors import record_error
 from .security import now, ticket_signature, verify_ticket, token, hash_pin, verify_pin, hash_answer, verify_answer
 from .qr import make_qr_bytes
 from .connectors import product_search, product_fallback_links, job_search, job_fallback_links
@@ -46,17 +47,32 @@ def log_visit():
         return
     visitor=request.cookies.get('visitor_key') or secrets.token_urlsafe(16)
     device=_device_key()
-    user_id=session.get('user_id')
-    phone=''
-    if user_id:
-        row=get_db().execute('SELECT phone FROM users WHERE id=? AND deleted_at IS NULL',(user_id,)).fetchone()
-        phone=row['phone'] if row else ''
-    db=get_db()
-    db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(visitor,request.path,now()))
-    cur=db.execute("INSERT INTO access_logs(user_id,visitor_key_hash,device_key_hash,phone,path,ip_address,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                   (user_id,_digest(visitor),_digest(device),phone,request.path,_client_ip(),request.headers.get('User-Agent','')[:500],now()))
-    db.commit()
-    request._visitor_key=visitor; request._device_key=device; request._access_id=cur.lastrowid
+    try:
+        user_id=session.get('user_id')
+        phone=''
+        if user_id:
+            row=get_db().execute('SELECT phone FROM users WHERE id=? AND deleted_at IS NULL',(user_id,)).fetchone()
+            phone=row['phone'] if row else ''
+        db=get_db()
+        # Analytics is best-effort: it must never turn a normal page into a 500.
+        db.execute("""CREATE TABLE IF NOT EXISTS access_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, visitor_key_hash TEXT NOT NULL,
+            device_key_hash TEXT NOT NULL, phone TEXT DEFAULT '', path TEXT NOT NULL, ip_address TEXT DEFAULT '',
+            user_agent TEXT DEFAULT '', latitude REAL, longitude REAL, location_source TEXT DEFAULT '', created_at TEXT NOT NULL
+        )""")
+        db.execute('CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_access_logs_device ON access_logs(device_key_hash)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_access_logs_user ON access_logs(user_id)')
+        db.execute('INSERT INTO visits(visitor_key,path,created_at) VALUES(?,?,?)',(visitor,request.path,now()))
+        cur=db.execute("INSERT INTO access_logs(user_id,visitor_key_hash,device_key_hash,phone,path,ip_address,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                       (user_id,_digest(visitor),_digest(device),phone,request.path,_client_ip(),request.headers.get('User-Agent','')[:500],now()))
+        db.commit()
+        request._visitor_key=visitor; request._device_key=device; request._access_id=cur.lastrowid
+    except Exception as exc:
+        try: get_db().rollback()
+        except Exception: pass
+        record_error(status_code=500,error_type='VisitorLoggingError',message=str(exc),exc=exc,context='request analytics failure; request continued')
+        request._visitor_key=visitor; request._device_key=device
 
 @bp.before_request
 def before(): log_visit()
@@ -70,6 +86,14 @@ def visitor_cookie(response):
     if device and not request.cookies.get('or_device_key'):
         response.set_cookie('or_device_key',device,max_age=31536000,httponly=True,samesite='Lax',secure=request.is_secure)
     return response
+
+@bp.post('/client-error')
+def client_error():
+    data=request.get_json(silent=True) or {}
+    context='source='+str(data.get('source',''))[:300]+' line='+str(data.get('line',''))[:20]+' column='+str(data.get('column',''))[:20]
+    context += '\n'+str(data.get('stack',''))[:12000]
+    record_error(status_code=0,error_type=str(data.get('kind','ClientError'))[:120],message=str(data.get('message','Client-side error'))[:5000],context=context)
+    return jsonify(ok=True)
 
 @bp.get('/health')
 def health(): return jsonify(ok=True, service='open-road-adventures')
@@ -144,8 +168,8 @@ def book(slug):
                 code='TK-'+secrets.token_hex(9).upper()
                 db.execute('INSERT INTO tickets(booking_id,passenger_name,ticket_code,signature,seat,created_at) VALUES(?,?,?,?,?,?)',(bid,user['name'],code,ticket_signature(code),str(sold+i+1),now()))
             db.commit()
-        except Exception:
-            db.rollback(); raise
+        except Exception as exc:
+            db.rollback(); record_error(status_code=500,error_type='BookingTransactionError',message=str(exc),exc=exc); raise
         return redirect(url_for('public.booking',ref=ref))
     return render_template('book.html',trip=t,sold=sold)
 
@@ -487,10 +511,6 @@ def ticketing_manifest():
     return jsonify({'name':'Open Road · Ticketing','short_name':'Ticketing','id':'/ticketing','start_url':'/ticketing/','scope':'/ticketing','display':'standalone','background_color':'#f7f8f7','theme_color':'#12212b','description':'Create, manage, find and scan Open Road tickets.'})
 
 
-@bp.get('/ticketing/sw.js')
-def ticketing_sw():
-    js="""const CACHE='open-road-ticketing-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/static/style.css','/static/icon.svg']))));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;e.respondWith(fetch(e.request).then(r=>{if(r.ok&&e.request.url.includes('/static/')){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{});}return r;}).catch(()=>caches.match(e.request)));});"""
-    return Response(js,mimetype='application/javascript',headers={'Service-Worker-Allowed':'/ticketing'})
 
 
 @bp.get('/ticketing', strict_slashes=False)
@@ -631,7 +651,8 @@ def event_request_ticket(slug):
         if mpesa_configured():
             intent=create_payment_intent(kind='event_ticket',target_id=ticket['id'],event_id=event['id'],amount=expected,phone=phone_n,metadata={'ticket_access_token':access,'ticket_code':code})
             start_payment(intent); payment_started=True
-    except Exception:
+    except Exception as exc:
+        record_error(status_code=500,error_type='PaymentStartError',message=str(exc),exc=exc)
         payment_started=False
     if payment_started: flash('Payment prompt sent to your phone. Once the exact payment is received, your ticket can unlock automatically.','success')
     else: flash('Ticket request saved as pending. Pay using the event instructions, then approval can happen automatically on an exact match or manually.','success')
@@ -1337,10 +1358,6 @@ def billing_manifest():
     return jsonify({'name':'Open Road · Invoices & Receipts','short_name':'Invoices','id':'/invoices-receipts','start_url':url_for('public.billing_home',_external=False),'scope':'/invoices-receipts','display':'standalone','background_color':'#f7f8f7','theme_color':'#12212b','description':'Simple professional invoices, receipts and rent records.'})
 
 
-@bp.get('/invoices-receipts/sw.js')
-def billing_sw():
-    js="""const CACHE='open-road-billing-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/static/style.css','/static/icon.svg']))));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;e.respondWith(fetch(e.request).then(r=>{if(r.ok&&e.request.url.includes('/static/')){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{});}return r;}).catch(()=>caches.match(e.request)));});"""
-    return Response(js,mimetype='application/javascript')
 
 
 @bp.get('/my-stuff/manifest.json')
@@ -1348,10 +1365,6 @@ def stuff_manifest():
     return jsonify({'name':'Open Road · My Stuff','short_name':'My Stuff','id':'/my-stuff','start_url':'/my-stuff/','scope':'/my-stuff','display':'standalone','background_color':'#fffdf8','theme_color':'#12212b','description':'Your private Open Road space for stories, cards and saved references.'})
 
 
-@bp.get('/my-stuff/sw.js')
-def stuff_sw():
-    js="""const CACHE='open-road-stuff-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/static/style.css','/static/icon.svg']))));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;e.respondWith(fetch(e.request).then(r=>{if(r.ok&&e.request.url.includes('/static/')){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy)).catch(()=>{});}return r;}).catch(()=>caches.match(e.request)));});"""
-    return Response(js,mimetype='application/javascript',headers={'Service-Worker-Allowed':'/my-stuff'})
 
 
 @bp.get('/my-stuff', strict_slashes=False)
@@ -1375,7 +1388,7 @@ def my_stuff_journal():
     entry=None
     if selected.isdigit():
         entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
-    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user))
+    return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user),offline_snapshot={'journals':[dict(x) for x in journals], 'copies':[], 'cards':[]})
 
 @bp.get('/my-stuff/journal/settings')
 def my_stuff_journal_settings():
@@ -1513,7 +1526,7 @@ def my_stuff_cards():
     db=get_db(); cards=db.execute('SELECT * FROM stuff_cards WHERE user_id=? ORDER BY updated_at DESC,id DESC',(user['id'],)).fetchall()
     import base64
     qr_b64=base64.b64encode(make_qr_bytes(url_for('public.home',_external=True))).decode()
-    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=int(user['stuff_card_uses'] or 0),simple_id_exists=has_id,qr_b64=qr_b64)
+    return render_template('my_color_cards.html',user=user,cards=cards,card_locked=False,card_use_count=int(user['stuff_card_uses'] or 0),simple_id_exists=has_id,qr_b64=qr_b64,offline_snapshot={'journals':[], 'copies':[], 'cards':[dict(x) for x in cards]})
 
 def _save_color_card_record(user):
     f=request.form; db=get_db(); card_id=f.get('card_id','').strip(); title=f.get('title','').strip()[:100]; body=f.get('body','').strip()[:4000]
@@ -1556,6 +1569,7 @@ def my_stuff_color_card_save():
     except Exception as exc:
         try: get_db().rollback()
         except Exception: pass
+        record_error(status_code=500,error_type='MyCardSaveError',message=str(exc),exc=exc)
         current_app.logger.exception('My Card save failed')
         return jsonify(ok=False,message=str(exc) or 'Could not save the card.'),500
 
@@ -1576,6 +1590,7 @@ def my_stuff_card_save_png():
     except Exception as exc:
         try: get_db().rollback()
         except Exception: pass
+        record_error(status_code=500,error_type='MyCardPngError',message=str(exc),exc=exc)
         current_app.logger.exception('My Card save-and-png failed')
         return jsonify(ok=False,message=str(exc) or 'Could not create the PNG.'),500
 
@@ -1817,8 +1832,8 @@ def _card_export_canvas(card, include_branding=True, qr_target='', brand_name='O
             qx=W-110-qr_img.width; qy=footer_y-80
             d.rounded_rectangle((qx-10,qy-10,qx+qr_img.width+10,qy+qr_img.height+10),radius=14,fill=(255,255,255,245))
             img.alpha_composite(qr_img,(qx,qy))
-        except Exception:
-            pass
+        except Exception as exc:
+            record_error(status_code=500,error_type='CardQrRenderError',message=str(exc),exc=exc,context='optional QR rendering while exporting a card')
 
     # Export intentionally keeps transparent corners for non-rectangular shapes.
     return img
@@ -1867,7 +1882,7 @@ def my_stuff_copy_paste():
     edit_id=request.args.get('edit','').strip(); edit_item=db.execute('SELECT * FROM saved_copies WHERE id=? AND user_id=?',(edit_id,user['id'])).fetchone() if edit_id.isdigit() else None
     saves_id_enabled=bool(user['saves_id_enabled'] if 'saves_id_enabled' in user.keys() else 0)
     saves_unlocked=(not saves_id_enabled) or session.get('saves_unlocked_user')==user['id']
-    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),saves_id_enabled=saves_id_enabled,saves_unlocked=saves_unlocked,use_count=int(user['stuff_copy_uses'] or 0))
+    return render_template('my_copy_paste.html',user=user,copies=copies,edit_item=edit_item,simple_id_exists=_stuff_id_ready(user),saves_id_enabled=saves_id_enabled,saves_unlocked=saves_unlocked,use_count=int(user['stuff_copy_uses'] or 0),offline_snapshot={'journals':[], 'copies':[dict(x) for x in copies] if saves_unlocked else [], 'cards':[]})
 
 @bp.post('/my-stuff/saves/unlock')
 def my_stuff_saves_unlock():
@@ -1960,7 +1975,9 @@ def my_stuff_image_upload():
         elif operation=='web': source.thumbnail((1600,1600), Image.Resampling.LANCZOS)
         out_name=_safe_stuff_image_name(f.filename); stuff_dir=os.path.join(current_app.config['UPLOAD_FOLDER'],'stuff',str(user['id'])); os.makedirs(stuff_dir,exist_ok=True); out_path=os.path.join(stuff_dir,out_name); source.save(out_path,'JPEG',quality=91,optimize=True)
         logical=os.path.join('stuff',str(user['id']),out_name); db=get_db(); db.execute('INSERT INTO stuff_images(user_id,original_name,filename,operation,created_at) VALUES(?,?,?,?,?)',(user['id'],f.filename,logical,operation,now())); db.commit(); flash('Image processed. Metadata has been removed from the new file.','success')
-    except Exception: flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
+    except Exception as exc:
+        record_error(status_code=500,error_type='ImageProcessingError',message=str(exc),exc=exc,context='My Stuff image processing')
+        flash('That image could not be processed. Try a JPG, PNG, WEBP or GIF under 12 MB.','error')
     return redirect(url_for('public.my_stuff_edits_studio', image=int(new_id)) if new_id else url_for('public.my_stuff_edits_studio'))
 
 @bp.get('/my-stuff/image/<int:image_id>')
@@ -2006,13 +2023,15 @@ def find_me_anything():
     q=' '.join(request.args.get('q','').strip().split())[:140]
     budget=request.args.get('budget','affordable').strip().lower()
     if budget not in {'affordable','moderate','high'}: budget='affordable'
+    country=request.args.get('country','Kenya').strip()[:60] or 'Kenya'
+    location=request.args.get('location','').strip()[:100]
     results=[]; searched=False
     if q:
-        searched=True; cache_key=_digest(f'{q.lower()}|{budget}')
-        live=product_search(q,budget); results=_blend_live_cache('product',cache_key,live)
+        searched=True; cache_key=_digest(f'{q.lower()}|{budget}|{country.lower()}|{location.lower()}')
+        live=product_search(q,budget,country,location); results=_blend_live_cache('product',cache_key,live)
         if live: _save_cache('product',cache_key,live)
-    fallback=product_fallback_links(q or 'popular products')
-    return render_template('find_me_anything.html',q=q,budget=budget,results=results,fallback=fallback,searched=searched)
+    fallback=product_fallback_links(q or 'popular products',country)
+    return render_template('find_me_anything.html',q=q,budget=budget,results=results,fallback=fallback,searched=searched,country=country,location=location)
 
 @bp.post('/api/location')
 def api_location():
@@ -2040,7 +2059,7 @@ def jobs():
     community=db.execute("SELECT j.*,u.name poster_name FROM jobs j JOIN users u ON u.id=j.posted_by_user_id WHERE j.status='published' AND lower(j.country)=lower(?) ORDER BY j.id DESC LIMIT 20",(country,)).fetchall()
     live=[]
     if q:
-        cache_key=_digest(f'job|{q.lower()}|{country.lower()}|{location.lower()}'); live=job_search(q,country,location); _save_cache('job',cache_key,live)
+        cache_key=_digest(f'job|{q.lower()}|{country.lower()}|{location.lower()}'); fresh=job_search(q,country,location); live=_blend_live_cache('job',cache_key,fresh); _save_cache('job',cache_key,fresh)
     else:
         cache_key=_digest(f'job|jobs|{country.lower()}|{location.lower()}'); live=_cache_rows('job',cache_key)
     if remote:
@@ -2195,6 +2214,29 @@ def service_worker():
     resp = send_from_directory(current_app.static_folder, 'sw.js', mimetype='application/javascript')
     resp.headers['Cache-Control'] = 'no-cache'
     return resp
+
+def _mini_manifest(name, short_name, app_id, start_url, scope, description):
+    return jsonify(name=name, short_name=short_name, id=app_id, start_url=start_url, scope=scope, display='standalone', background_color='#fbf6ea', theme_color='#12212b', orientation='portrait-primary', categories=['utilities','lifestyle'], icons=[{'src':url_for('static',filename='icon.svg'),'sizes':'any','type':'image/svg+xml','purpose':'any maskable'}], description=description)
+
+@bp.get('/find-me-anything/manifest.json')
+def finder_manifest():
+    return _mini_manifest('Open Road · Find Me Anything','Find Anything','/open-road-find-anything','/find-me-anything','/find-me-anything','A local-first connector for finding products, prices, cars, food and other things online.')
+
+@bp.get('/jobs/manifest.json')
+def jobs_manifest():
+    return _mini_manifest('Open Road · Jobs','Jobs','/open-road-jobs','/jobs','/jobs','A country and location-aware job discovery desk with Open Road posts first.')
+
+@bp.get('/my-stuff/cards/manifest.json')
+def cards_manifest():
+    return _mini_manifest('Open Road · My Cards','My Cards','/open-road-my-cards','/my-stuff/cards','/my-stuff/cards','Your card studio, installable independently from the main Open Road app.')
+
+@bp.get('/my-stuff/copy-paste/manifest.json')
+def saves_manifest():
+    return _mini_manifest('Open Road · My Saves','My Saves','/open-road-my-saves','/my-stuff/copy-paste','/my-stuff/copy-paste','Your saved numbers, codes and references, with a durable offline copy.')
+
+@bp.get('/my-stuff/journal/manifest.json')
+def journal_manifest():
+    return _mini_manifest('Open Road · My Story','My Story','/open-road-my-story','/my-stuff/journal','/my-stuff/journal','Your private story space, installable independently and usable offline through its local copy.')
 
 @bp.get('/manifest.json')
 def manifest():
