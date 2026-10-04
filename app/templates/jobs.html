@@ -25,14 +25,14 @@
 
   {% if results %}
   <section class="hunt-results">
-    <div class="finder-section-head"><div><span>LIVE + INDEXED</span><h2>Jobs we could reach.</h2></div><small>{{ results|length }} leads</small></div>
+    <div class="finder-section-head"><div><span>SHOWN HERE · CONNECTED SOURCES</span><h2>Jobs are collected into Open Road.</h2></div><small>{{ results|length }} leads · Open Road posts stay first</small></div>
     <div class="job-list">{% for r in results %}<article class="job-card"><div><span class="job-source">{{ r.source }}</span><h3>{{ r.title }}</h3><p>{{ r.snippet|truncate(200) }}</p></div><a class="result-open" href="{{ r.url }}" target="_blank" rel="noopener">Open ↗</a></article>{% endfor %}</div>
   </section>
   {% else %}
   <section class="finder-empty"><div class="finder-empty-icon">⌁</div><div><span>NO DEAD END</span><h2>Start with a role.</h2><p>Or jump straight to a job board below. There is always a search door even when a remote board is quiet.</p></div></section>
   {% endif %}
 
-  <section class="source-strip"><div><span>MORE DOORS</span><h2>Search the boards directly.</h2></div><div class="source-links">{% for f in fallback %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.source }} <span>↗</span></a>{% endfor %}</div></section>
+  <section class="source-strip"><div><span>NEVER A DEAD END</span><h2>We keep the source doors underneath.</h2></div><div class="source-links">{% for f in fallback %}<a href="{{ f.url }}" target="_blank" rel="noopener">{{ f.source }} <span>↗</span></a>{% endfor %}</div></section>
   <section class="job-post-call"><div><span>EMPLOYER?</span><h2>Post a job where local users see it first.</h2><p>Posting requires an Open Road ID so the hiring post has an accountable owner.</p></div><a class="button primary" href="{{ url_for('public.job_post') }}">Post a job</a></section>
 </section>
 {% endblock %}

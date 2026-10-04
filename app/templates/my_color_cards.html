@@ -89,6 +89,7 @@
 {% if card_locked %}<dialog id="ccIdPanel" class="cc-id-dialog"><form method="post" action="{{ url_for('public.my_stuff_id') }}"><input type="hidden" name="next" value="color-cards"><button type="button" class="cc-id-close" onclick="document.getElementById('ccIdPanel').close()">×</button><span>OPEN ROAD ID</span><h3>One simple ID.</h3><p>Use the same little ID across My Stuff.</p><input name="simple_id" minlength="4" maxlength="8" pattern="[A-Za-z0-9]{4,8}" required placeholder="e.g. 4K8P"><button class="cc-id-submit" type="submit">Create ID</button></form></dialog>{% endif %}
 {% endblock %}
 {% block scripts %}
+<script>window.__OR_STUFF_SNAPSHOT__={{ offline_snapshot|tojson }};</script>
 <script>
 document.body.classList.add('personal-route-body','color-cards-body');
 (function(){
@@ -145,7 +146,7 @@ document.body.classList.add('personal-route-body','color-cards-body');
       const r=await fetch(saveUrl,{method:'POST',body:form,credentials:'same-origin',headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
       const raw=await r.text();let j;try{j=JSON.parse(raw)}catch(_){throw new Error(raw.slice(0,120)||'Could not save the card.')}
       if(!r.ok||!j.ok)throw new Error(j.message||'Could not save the card.');
-      S.id=j.saved_id;document.getElementById('ccId').value=S.id;
+      S.id=j.saved_id;document.getElementById('ccId').value=S.id;window.OpenRoadStuffOffline?.seed({journals:[],copies:[],cards:[{id:S.id,title:title,body:body,color:S.color,font_style:S.font,shape_style:S.shape,design_style:S.design,background_style:S.background,decoration:S.accent,custom_bg:S.customBg||'',custom_text:S.customText||'',text_align:S.align,font_scale:Number(S.size||100),border_style:S.border,texture_style:S.texture,accent_color:'',format_style:S.format,signature_enabled:S.signature?1:0,qr_enabled:1,updated_at:new Date().toISOString(),created_at:new Date().toISOString()}]});
       if(kind==='png'){
         try{const blob=await ccExactPng();const safe=(title||'quick-card').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,55)||'quick-card';ccTriggerDownload(blob,'open-road-'+safe+'.png');status.textContent='Saved ✓ PNG downloaded';}
         catch(primary){const fallback=await fetch(pngUrl,{method:'POST',body:form,credentials:'same-origin',headers:{Accept:'image/png'}});if(!fallback.ok)throw primary;const blob=await fallback.blob();const safe=(title||'quick-card').replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,55)||'quick-card';ccTriggerDownload(blob,'open-road-'+safe+'.png');status.textContent='Saved ✓ PNG downloaded';}

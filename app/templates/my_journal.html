@@ -21,7 +21,7 @@
     {% endif %}
   </main>
 </div>
-{% endblock %}{% block scripts %}<script>
+{% endblock %}{% block scripts %}<script>window.__OR_STUFF_SNAPSHOT__={{ offline_snapshot|tojson }};</script><script>
 document.body.classList.add('personal-route-body','journal-v5-body');
 (function(){
  const input=document.getElementById('j5Input');if(!input)return;const form=document.getElementById('j5Form'),sideTitle=document.getElementById('j5TitleSide'),mainTitle=document.getElementById('j5TitleMain'),titleField=document.getElementById('j5TitleField'),count=document.getElementById('j5Count'),state=document.getElementById('j5SaveState');
@@ -32,6 +32,6 @@ document.body.classList.add('personal-route-body','journal-v5-body');
  function paint(){const n=(input.value.trim().match(/\S+/g)||[]).length;count.textContent=n+' word'+(n===1?'':'s');if(state)state.textContent='Private · '+(n?'draft saved locally':'ready');}
  let timer;function saveDraft(){clearTimeout(timer);timer=setTimeout(()=>{try{localStorage.setItem('openroad-journal-v5',JSON.stringify({title:titleField.value,body:input.value}));}catch(_){}},250)}
  try{const d=JSON.parse(localStorage.getItem('openroad-journal-v5')||'null');if(d&&!(input.value||'').trim()){input.value=d.body||'';titleField.value=(d.title||titleField.value||todayTitle()).trim();if(sideTitle)sideTitle.value=titleField.value;if(mainTitle)mainTitle.value=titleField.value;}}catch(_){}
- input.addEventListener('input',()=>{paint();saveDraft()});form.addEventListener('submit',()=>{if(!titleField.value.trim())titleField.value=todayTitle();document.getElementById('j5BodyField').value=input.value;try{localStorage.removeItem('openroad-journal-v5')}catch(_){}});window.j5Emoji=e=>{const a=input.selectionStart,b=input.selectionEnd;input.setRangeText(e,a,b,'end');input.focus();paint();saveDraft()};paint();
+ input.addEventListener('input',()=>{paint();saveDraft()});form.addEventListener('submit',()=>{if(!titleField.value.trim())titleField.value=todayTitle();document.getElementById('j5BodyField').value=input.value;window.OpenRoadStuffOffline?.seed({journals:[{id:form.querySelector('[name=entry_id]')?.value||('local-'+Date.now()),title:titleField.value,body:input.value,mood:document.getElementById('j5MoodField')?.value||'morning',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),favorite:0,archived:0,cover_color:'cream'}],copies:[],cards:[]});try{localStorage.removeItem('openroad-journal-v5')}catch(_){}});window.j5Emoji=e=>{const a=input.selectionStart,b=input.selectionEnd;input.setRangeText(e,a,b,'end');input.focus();paint();saveDraft()};paint();
 })();
 </script>{% endblock %}

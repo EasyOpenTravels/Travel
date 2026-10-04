@@ -8,7 +8,7 @@
 </main>
 <div id="offlineMessage" class="offline-message"></div>
 <script>
-const DB_NAME='open-road-my-stuff-v2',DB_VER=1,STORES=['journals','copies','cards'];let odb;
+const DB_NAME='open-road-my-stuff-v2',DB_VER=1,STORES=['journals','copies','cards'];let odb;async function requestDurableStorage(){try{if(navigator.storage?.persist)await navigator.storage.persist();}catch(_){}}
 function dbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VER);r.onupgradeneeded=()=>{for(const s of STORES)if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id'});};r.onsuccess=()=>{odb=r.result;res(odb)};r.onerror=()=>rej(r.error)})}
 function all(s){return new Promise((res,rej)=>{const q=odb.transaction(s).objectStore(s).getAll();q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
 function put(s,v){return new Promise((res,rej)=>{const q=odb.transaction(s,'readwrite').objectStore(s).put(v);q.onsuccess=()=>res();q.onerror=()=>rej(q.error)})}
@@ -42,5 +42,5 @@ async function offlineCopy(id,b){const x=(await all('copies')).find(v=>String(v.
 document.getElementById('offlineCopySearch').addEventListener('input',renderOfflineCopy);
 document.getElementById('offlineStudioFile').addEventListener('change',e=>document.getElementById('offlineStudioFileName').textContent=e.target.files[0]?.name||'No image selected');
 function offlineImageTool(op){const f=document.getElementById('offlineStudioFile').files[0];if(!f){msg('Choose an image first');return}const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{let w=img.naturalWidth,h=img.naturalHeight;if(op==='web'){const scale=Math.min(1,1600/Math.max(w,h));w=Math.max(1,Math.round(w*scale));h=Math.max(1,Math.round(h*scale))}const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.drawImage(img,0,0,w,h);if(op==='grayscale'){const d=x.getImageData(0,0,w,h);for(let i=0;i<d.data.length;i+=4){const g=Math.round(.299*d.data[i]+.587*d.data[i+1]+.114*d.data[i+2]);d.data[i]=d.data[i+1]=d.data[i+2]=g}x.putImageData(d,0,0)}c.toBlob(b=>{const u=URL.createObjectURL(b);document.getElementById('offlineStudioResult').innerHTML=`<a class="button primary" href="${u}" download="open-road-cleaned.jpg">Download cleaned image</a><span class="offline-help"> New JPEG · locally processed.</span>`;msg('Image ready')},'image/jpeg',.92)};img.src=r.result};r.readAsDataURL(f)}
-async function boot(){await dbOpen();if(location.hash==='#journal')openOfflineSpace('journal');else if(location.hash==='#copy')openOfflineSpace('copy');else if(location.hash==='#studio')openOfflineSpace('studio');else await renderOfflineJournal();await renderOfflineCopy()};boot();
+async function boot(){await requestDurableStorage();await dbOpen();const focus=new URLSearchParams(location.search).get('focus');if(focus==='journal'||location.hash==='#journal')openOfflineSpace('journal');else if(focus==='copy'||location.hash==='#copy')openOfflineSpace('copy');else if(focus==='cards'||focus==='studio'||location.hash==='#studio')openOfflineSpace('studio');else await renderOfflineJournal();await renderOfflineCopy()};boot();
 </script></body></html>

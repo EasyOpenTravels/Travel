@@ -7,7 +7,7 @@
     <p>Say it normally. A phone, Nike shoes, reading glasses, bread, a car model — we hunt across listings and marketplaces, then put the door in front of you.</p>
     <form class="finder-search" method="get" action="{{ url_for('public.find_me_anything') }}">
       <input name="q" value="{{ q }}" autofocus autocomplete="off" placeholder="Try: iPhone 15, black sneakers, Toyota Harrier…" aria-label="What are you looking for?">
-      <input type="hidden" name="budget" id="budgetValue" value="{{ budget }}">
+      <input type="hidden" name="budget" id="budgetValue" value="{{ budget }}"><input type="hidden" name="country" value="{{ country }}"><input type="hidden" name="location" value="{{ location }}">
       <button>Hunt it</button>
     </form>
     <div class="finder-chips" aria-label="Quick searches">
@@ -15,7 +15,7 @@
       <a href="{{ url_for('public.find_me_anything',q=item,budget=budget) }}">{{ item }}</a>
       {% endfor %}
     </div>
-    <div class="budget-switch" role="group" aria-label="Price range">
+    <div class="finder-context"><label>Where <select id="anythingCountry"><option {{ "selected" if country=="Kenya" else "" }}>Kenya</option><option>Uganda</option><option>Tanzania</option><option>Rwanda</option><option>Nigeria</option><option>Ghana</option><option>South Africa</option><option>United Kingdom</option><option>United States</option><option>Canada</option><option>Australia</option><option>Germany</option><option>India</option><option>United Arab Emirates</option></select></label><button type="button" onclick="useAnythingLocation()">◎ Near me</button><span id="anythingLocation">Local-first is on.</span></div><div class="budget-switch" role="group" aria-label="Price range">
       <button type="button" data-budget="affordable" class="{{ 'active' if budget=='affordable' else '' }}">Affordable</button>
       <button type="button" data-budget="moderate" class="{{ 'active' if budget=='moderate' else '' }}">Moderate</button>
       <button type="button" data-budget="high" class="{{ 'active' if budget=='high' else '' }}">High-end</button>
@@ -28,7 +28,7 @@
     <div class="result-grid">
       {% for r in results %}
       <article class="result-card">
-        <div class="result-top"><span>{{ r.source }}</span>{% if r.price_text %}<b>{{ r.price_text }}</b>{% else %}<b class="price-soft">Price on listing</b>{% endif %}</div>
+        <div class="result-top"><span>{{ 'LOCAL' if r.domain and (r.domain.endswith('.co.ke') or r.domain.endswith('.ke')) and country|lower=='kenya' else r.source }}</span>{% if r.price_text %}<b>{{ r.price_text }}</b>{% else %}<b class="price-soft">Price on listing</b>{% endif %}</div>
         <h3>{{ r.title }}</h3>
         <p>{{ r.snippet|truncate(170) }}</p>
         <a class="result-open" href="{{ r.url }}" target="_blank" rel="noopener">Open listing ↗</a>
@@ -48,6 +48,6 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const budgetButtons=document.querySelectorAll('[data-budget]');const budgetValue=document.getElementById('budgetValue');budgetButtons.forEach(b=>b.addEventListener('click',()=>{budgetValue.value=b.dataset.budget;budgetButtons.forEach(x=>x.classList.toggle('active',x===b));const form=b.closest('.finder-hero').querySelector('form');if(form.querySelector('input[name="q"]').value.trim())form.submit();}));
+const countrySelect=document.getElementById('anythingCountry');countrySelect?.addEventListener('change',()=>{document.querySelector('input[name=country]').value=countrySelect.value;if(document.querySelector('.finder-search input[name=q]')?.value.trim())document.querySelector('.finder-search').submit()});window.useAnythingLocation=function(){if(!navigator.geolocation){document.getElementById('anythingLocation').textContent='Location unavailable';return;}navigator.geolocation.getCurrentPosition(p=>{document.querySelector('input[name=location]').value=`${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`;document.getElementById('anythingLocation').textContent='Near-me signal added';document.querySelector('.finder-search').submit()},()=>document.getElementById('anythingLocation').textContent='Location not shared');};const budgetButtons=document.querySelectorAll('[data-budget]');const budgetValue=document.getElementById('budgetValue');budgetButtons.forEach(b=>b.addEventListener('click',()=>{budgetValue.value=b.dataset.budget;budgetButtons.forEach(x=>x.classList.toggle('active',x===b));const form=b.closest('.finder-hero').querySelector('form');if(form.querySelector('input[name="q"]').value.trim())form.submit();}));
 </script>
 {% endblock %}
