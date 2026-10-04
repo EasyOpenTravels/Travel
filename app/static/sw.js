@@ -1,5 +1,11 @@
-const CACHE='open-road-v6';
-const CORE=['/','/static/style.css?v=20260920-ui6','/static/icon.svg'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return; const u=new URL(e.request.url); if(u.origin!==location.origin)return; const publicCache=u.pathname==='/'||u.pathname.startsWith('/static/'); if(!publicCache)return; e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request)));});
+const CACHE='open-road-v8';
+const CORE=['/','/find-me-anything','/jobs','/my-stuff','/offline','/offline/my-stuff','/offline/my-stuff?focus=cards','/offline/my-stuff?focus=copy','/offline/my-stuff?focus=journal','/static/style.css?v=20261002-billing1','/static/icon.svg'];
+const PRIVATE_PREFIXES=['/account','/admin','/invoices-receipts','/ticketing','/my-stuff/journal','/my-stuff/cards','/my-stuff/copy-paste','/my-stuff/edits-studio'];
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE&&k.startsWith('open-road-')).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+function isNavigation(req){return req.mode==='navigate'||(req.headers.get('accept')||'').includes('text/html')}
+function isPrivatePath(path){return PRIVATE_PREFIXES.some(p=>path===p||path.startsWith(p+'/'))}
+async function offlineFallback(path){if(path.startsWith('/my-stuff/cards'))return caches.match('/offline/my-stuff?focus=cards');if(path.startsWith('/my-stuff/copy-paste'))return caches.match('/offline/my-stuff?focus=copy');if(path.startsWith('/my-stuff/journal'))return caches.match('/offline/my-stuff?focus=journal');return caches.match('/offline')}
+async function networkFirst(req){try{const r=await fetch(req);if(r.ok&&!isPrivatePath(new URL(req.url).pathname)){const c=await caches.open(CACHE);c.put(req,r.clone()).catch(()=>{});}return r;}catch(e){const cache=await caches.match(req);if(cache)return cache;return offlineFallback(new URL(req.url).pathname);}}
+async function publicAsset(req){const cached=await caches.match(req);if(cached){fetch(req).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(req,r.clone())).catch(()=>{})}).catch(()=>{});return cached;}try{const r=await fetch(req);if(r.ok)caches.open(CACHE).then(c=>c.put(req,r.clone())).catch(()=>{});return r;}catch(e){return Response.error();}}
+self.addEventListener('fetch',event=>{const req=event.request;if(req.method!=='GET')return;const u=new URL(req.url);if(u.origin!==location.origin)return;if(isNavigation(req))event.respondWith(networkFirst(req));else if(u.pathname.startsWith('/static/'))event.respondWith(publicAsset(req));});
