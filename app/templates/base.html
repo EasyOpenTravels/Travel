@@ -13,7 +13,7 @@
 {% elif request.path.startswith('/jobs') %}{% set app_manifest = url_for('public.jobs_manifest') %}{% set install_app_name = 'Jobs' %}
 {% else %}{% set app_manifest = url_for('public.manifest') %}{% set install_app_name = 'Open Road' %}{% endif %}
 <link rel="manifest" href="{{ app_manifest }}"><link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
-<link rel="stylesheet" href="{{ url_for('static',filename='style.css',v='20261004-stability1') }}">{% if request.path.startswith('/my-stuff') %}<script src="{{ url_for('static',filename='stuff-persist.js') }}" defer></script>{% endif %}<title>{{ install_app_name }} · {{ config.BRAND_NAME }}</title>
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css',v='20261016-hard-save1') }}">{% if request.path.startswith('/my-stuff') %}<script src="{{ url_for('static',filename='stuff-persist.js') }}" defer></script>{% endif %}<title>{{ install_app_name }} · {{ config.BRAND_NAME }}</title>
 </head>
 <body>
 <header class="topbar">

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block content %}
-<div class="journal-v5" id="journalV5">
+<div class="journal-v5" id="journalV5" data-user-id="{{ user.id }}" data-entry-id="{{ entry.id if entry else '' }}">
   <aside class="journal-v5-side" id="journalSide">
     <div class="j5-side-top"><a href="{{ url_for('public.my_stuff') }}" class="j5-back">My Stuff</a><button type="button" class="j5-close" onclick="document.body.classList.remove('journal-v5-open')">×</button></div>
     <div class="j5-side-title"><span>MY STORY</span><strong>Your pages</strong></div>
@@ -9,7 +9,7 @@
       <div class="j5-page-row {{ 'active' if entry and entry.id==j.id else '' }}"><a href="{{ url_for('public.my_stuff_journal',entry=j.id) }}"><i class="{{ j.cover_color }}"></i><span><b>{{ j.title }}</b><small>{{ j.created_at[:10] if j.created_at else '' }}</small></span></a><form method="post" action="{{ url_for('public.my_stuff_journal_delete',entry_id=j.id) }}" onsubmit="return confirm('Delete this page?')"><button aria-label="Delete page">×</button></form></div>
       {% else %}<p class="j5-empty">Your pages will appear here.</p>{% endfor %}
     </div>
-    <div class="j5-side-foot"><a href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a><span>Private by design</span></div>
+    <div class="j5-side-foot"><a href="{{ url_for('public.my_stuff_journal_settings') }}">⚙ Settings</a><span>Private by design</span></div><a class="j5-backup-link" href="{{ url_for('public.my_stuff_journal_backup') }}">↓ Download journal backup</a><a class="j5-backup-link" href="#" id="j5RestoreTrigger">↑ Restore from backup</a><input id="j5BackupFile" type="file" accept="application/json,.json" hidden>
     {% if entry or edit_mode %}<div class="j5-title-editor"><label>PAGE NAME</label><input id="j5TitleSide" value="{{ entry.title if entry else '' }}" placeholder="Today's page" maxlength="140"></div>{% endif %}
   </aside>
   <main class="journal-v5-main">
@@ -21,17 +21,8 @@
     {% endif %}
   </main>
 </div>
-{% endblock %}{% block scripts %}<script>window.__OR_STUFF_SNAPSHOT__={{ offline_snapshot|tojson }};</script><script>
+{% endblock %}{% block scripts %}<script>window.__OR_STUFF_SNAPSHOT__={{ offline_snapshot|tojson }};window.__OR_JOURNAL_CONTEXT__={{ {'user_id':user.id,'entry_id':(entry.id if entry else ''),'title':(entry.title if entry else ''),'body':(entry.body if entry else ''),'updated_at':(entry.updated_at if entry else ''),'tags':(entry.tags if entry else ''),'cover_color':(entry.cover_color if entry else 'cream')}|tojson }};</script><script src="{{ url_for('static',filename='journal-recovery.js',v='20261016-hard-save1') }}"></script><script>
 document.body.classList.add('personal-route-body','journal-v5-body');
-(function(){
- const input=document.getElementById('j5Input');if(!input)return;const form=document.getElementById('j5Form'),sideTitle=document.getElementById('j5TitleSide'),mainTitle=document.getElementById('j5TitleMain'),titleField=document.getElementById('j5TitleField'),count=document.getElementById('j5Count'),state=document.getElementById('j5SaveState');
- function todayTitle(){const d=new Date();return d.toLocaleDateString(undefined,{day:'2-digit',month:'long',year:'numeric'});} if(titleField&&!titleField.value.trim()){titleField.value=todayTitle();if(sideTitle)sideTitle.value=todayTitle();if(mainTitle)mainTitle.value=todayTitle();}
- function syncTitle(v){titleField.value=v.trim();if(sideTitle)sideTitle.value=titleField.value;if(mainTitle)mainTitle.value=titleField.value||todayTitle();saveDraft();}
- if(sideTitle)sideTitle.addEventListener('input',()=>syncTitle(sideTitle.value));
- if(mainTitle)mainTitle.addEventListener('input',()=>syncTitle(mainTitle.value));
- function paint(){const n=(input.value.trim().match(/\S+/g)||[]).length;count.textContent=n+' word'+(n===1?'':'s');if(state)state.textContent='Private · '+(n?'draft saved locally':'ready');}
- let timer;function saveDraft(){clearTimeout(timer);timer=setTimeout(()=>{try{localStorage.setItem('openroad-journal-v5',JSON.stringify({title:titleField.value,body:input.value}));}catch(_){}},250)}
- try{const d=JSON.parse(localStorage.getItem('openroad-journal-v5')||'null');if(d&&!(input.value||'').trim()){input.value=d.body||'';titleField.value=(d.title||titleField.value||todayTitle()).trim();if(sideTitle)sideTitle.value=titleField.value;if(mainTitle)mainTitle.value=titleField.value;}}catch(_){}
- input.addEventListener('input',()=>{paint();saveDraft()});form.addEventListener('submit',()=>{if(!titleField.value.trim())titleField.value=todayTitle();document.getElementById('j5BodyField').value=input.value;window.OpenRoadStuffOffline?.seed({journals:[{id:form.querySelector('[name=entry_id]')?.value||('local-'+Date.now()),title:titleField.value,body:input.value,mood:document.getElementById('j5MoodField')?.value||'morning',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),favorite:0,archived:0,cover_color:'cream'}],copies:[],cards:[]});try{localStorage.removeItem('openroad-journal-v5')}catch(_){}});window.j5Emoji=e=>{const a=input.selectionStart,b=input.selectionEnd;input.setRangeText(e,a,b,'end');input.focus();paint();saveDraft()};paint();
-})();
+// Autosave, offline recovery, and submit safety live in journal-recovery.js.
+
 </script>{% endblock %}

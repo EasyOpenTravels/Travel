@@ -1,5 +1,5 @@
-const CACHE='open-road-v8';
-const CORE=['/','/find-me-anything','/jobs','/my-stuff','/offline','/offline/my-stuff','/offline/my-stuff?focus=cards','/offline/my-stuff?focus=copy','/offline/my-stuff?focus=journal','/static/style.css?v=20261002-billing1','/static/icon.svg'];
+const CACHE='open-road-v9';
+const CORE=['/','/find-me-anything','/jobs','/my-stuff','/offline','/offline/my-stuff','/offline/my-stuff?focus=cards','/offline/my-stuff?focus=copy','/offline/my-stuff?focus=journal','/static/style.css?v=20261016-hard-save1','/static/icon.svg','/static/journal-recovery.js?v=20261016-hard-save1','/static/stuff-persist.js'];
 const PRIVATE_PREFIXES=['/account','/admin','/invoices-receipts','/ticketing','/my-stuff/journal','/my-stuff/cards','/my-stuff/copy-paste','/my-stuff/edits-studio'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE&&k.startsWith('open-road-')).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

@@ -66,7 +66,9 @@ def create_app():
     @app.after_request
     def headers(resp):
         resp.headers['X-Content-Type-Options']='nosniff'; resp.headers['X-Frame-Options']='DENY'; resp.headers['Referrer-Policy']='strict-origin-when-cross-origin'
-        if request.path.startswith('/'+app.config['ADMIN_PATH']): resp.headers['Cache-Control']='no-store'
+        if request.path.startswith('/'+app.config['ADMIN_PATH']) or request.path.startswith('/my-stuff/journal'):
+            resp.headers['Cache-Control'] = 'no-store, private, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
         return resp
     return app
 app = create_app()

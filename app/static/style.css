@@ -166,3 +166,16 @@ body.personal-route-body{background:var(--stuff-bg)}
 @media(max-width:780px){.finder-page{padding:18px 12px 60px}.finder-hero h1{font-size:68px}.finder-search input{min-width:0}.result-grid{grid-template-columns:repeat(2,1fr)}.source-strip{grid-template-columns:1fr}.source-links{grid-template-columns:repeat(2,1fr)}.finder-section-head{align-items:start;flex-direction:column}.finder-section-head small{text-align:left}.job-search input,.job-search select{flex:1;min-width:140px}.job-card{grid-template-columns:1fr}.job-post-call{align-items:start;flex-direction:column}.job-post-form .field-grid{grid-template-columns:1fr}}
 @media(max-width:520px){.finder-hero h1{font-size:57px}.finder-hero>p{font-size:15px}.result-grid{grid-template-columns:1fr}.source-links{grid-template-columns:1fr}.finder-empty{align-items:start}.finder-empty h2{font-size:29px}.location-status{display:block;margin:6px 0 0}}
 .admin-activity .admin-panel{margin-top:18px}.admin-activity td small,.admin-activity td b,.admin-activity td span{display:block}.admin-activity td small,.admin-panel td small{font-size:9px;color:var(--muted);margin-top:3px}.admin-activity code,.admin-panel code{font-size:9px;background:#f1f3f3;border-radius:6px;padding:3px 5px}.admin-activity td a{font-weight:900;text-decoration:underline}
+
+/* Journal reliability controls */
+.j5-backup-link{display:inline-flex;align-items:center;gap:8px;margin:10px 0 2px;padding:10px 12px;border:1px solid var(--stuff-line);border-radius:12px;background:var(--stuff-paper);font-size:10px;font-weight:900;color:var(--stuff-ink)}
+.j5-recovery-banner{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:10px 0 16px;padding:13px 15px;border:1px solid var(--stuff-line);border-radius:14px;background:var(--stuff-paper);font-size:12px;color:var(--stuff-ink)}
+.j5-recovery-banner span{flex:1;min-width:180px}
+.j5-recovery-banner button{border:0;border-radius:10px;padding:9px 12px;background:var(--stuff-ink);color:#fff;font-size:11px;font-weight:900;cursor:pointer}
+
+
+/* Journal reliability controls */
+.j5-backup-link{display:inline-flex;align-items:center;gap:8px;margin:10px 0 2px;padding:10px 12px;border:1px solid var(--stuff-line);border-radius:12px;background:var(--stuff-paper);font-size:10px;font-weight:900;color:var(--stuff-ink)}
+.j5-recovery-banner{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:10px 0 16px;padding:13px 15px;border:1px solid var(--stuff-line);border-radius:14px;background:var(--stuff-paper);font-size:12px;color:var(--stuff-ink)}
+.j5-recovery-banner span{flex:1;min-width:180px}
+.j5-recovery-banner button{border:0;border-radius:10px;padding:9px 12px;background:var(--stuff-ink);color:#fff;font-size:11px;font-weight:900;cursor:pointer}

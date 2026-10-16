@@ -1390,6 +1390,136 @@ def my_stuff_journal():
         entry=get_db().execute('SELECT * FROM journal_entries WHERE id=? AND user_id=?',(int(selected),user['id'])).fetchone()
     return render_template('my_journal.html',user=user,journals=journals,journal_count=count,archived_journal_count=archived_count,journal_view=view,entry=entry,moods=_journal_moods(),simple_id_exists=_stuff_id_ready(user),use_count=int(user['stuff_journal_uses'] or 0),edit_mode=edit_mode,journal_secret_set=_journal_secret_set(user),offline_snapshot={'journals':[dict(x) for x in journals], 'copies':[], 'cards':[]})
 
+@bp.post('/my-stuff/journal/autosave')
+def my_stuff_journal_autosave():
+    """Persist the live editor draft server-side without navigating away."""
+    user = _current_user_for_stuff()
+    if not user:
+        return jsonify(ok=False, error='workspace_unavailable'), 403
+    blocked = _journal_require_unlock(user)
+    if blocked:
+        return jsonify(ok=False, error='journal_locked'), 423
+
+    payload = request.get_json(silent=True) or request.form
+    entry_id = str(payload.get('entry_id') or '').strip()
+    title = str(payload.get('title') or '').strip()[:140]
+    body = str(payload.get('body') or '')
+    mood = str(payload.get('mood') or 'morning').strip()[:40]
+    tags = str(payload.get('tags') or '').strip()[:240]
+    cover_color = str(payload.get('cover_color') or 'cream').strip().lower()
+    if mood.lower() not in {x.lower() for x in _journal_moods()} | {'thoughts','grateful','happy','calm','excited','sad','angry','hopeful','proud','tired'}:
+        mood = 'morning'
+    if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}:
+        cover_color = 'cream'
+    if len(body) > 1_000_000:
+        return jsonify(ok=False, error='draft_too_large'), 413
+    # Accepted offline moods are intentionally preserved rather than collapsed to 'morning'.
+
+    # Don't create empty pages from an untouched editor. Existing pages can be
+    # autosaved empty if the user deliberately clears their contents.
+    if not entry_id and not body.strip():
+        return jsonify(ok=True, saved=False, entry_id=None)
+
+    db = get_db()
+    stamp = now()
+    if entry_id:
+        if not entry_id.isdigit():
+            return jsonify(ok=False, error='invalid_entry'), 400
+        owned = db.execute('SELECT id FROM journal_entries WHERE id=? AND user_id=?', (int(entry_id), user['id'])).fetchone()
+        if not owned:
+            return jsonify(ok=False, error='entry_not_found'), 404
+        if not title:
+            title = datetime.now(timezone.utc).strftime('%d %B %Y')
+        db.execute('UPDATE journal_entries SET title=?,body=?,mood=?,tags=?,cover_color=?,updated_at=? WHERE id=? AND user_id=?',
+                   (title, body, mood, tags, cover_color, stamp, int(entry_id), user['id']))
+        saved_id = int(entry_id)
+    else:
+        title = title or datetime.now(timezone.utc).strftime('%d %B %Y')
+        cur = db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
+                         (user['id'], title, body, mood, tags, cover_color, '[]', stamp, stamp))
+        saved_id = int(cur.lastrowid)
+    db.commit()
+    return jsonify(ok=True, saved=True, entry_id=saved_id, updated_at=stamp, title=title)
+
+
+@bp.get('/my-stuff/journal/backup.json')
+def my_stuff_journal_backup():
+    """Download a private, user-scoped export of all journal pages."""
+    user = _current_user_for_stuff()
+    blocked = _journal_require_unlock(user)
+    if blocked:
+        return blocked
+    rows = get_db().execute('SELECT id,title,body,mood,tags,cover_color,segments_json,favorite,archived,created_at,updated_at FROM journal_entries WHERE user_id=? ORDER BY updated_at DESC,id DESC', (user['id'],)).fetchall()
+    payload = {
+        'format': 'open-road-my-story-backup-v1',
+        'exported_at': now(),
+        'count': len(rows),
+        'entries': [dict(row) for row in rows],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8')
+    response = send_file(BytesIO(raw), mimetype='application/json', as_attachment=True,
+                         download_name='my-story-backup.json', max_age=0)
+    response.headers['Cache-Control'] = 'no-store, private, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    return response
+
+
+@bp.post('/my-stuff/journal/restore.json')
+def my_stuff_journal_restore_backup():
+    """Merge entries from a previously downloaded backup; never overwrite existing entries."""
+    user = _current_user_for_stuff()
+    blocked = _journal_require_unlock(user)
+    if blocked:
+        return jsonify(ok=False, error='journal_locked'), 423
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify(ok=False, error='invalid_backup'), 400
+    rows = list(payload.get('entries') or [])
+    # Device backups can also carry drafts that had not reached the server yet.
+    rows.extend(payload.get('recoveryDrafts') or [])
+    if payload.get('legacyRecoveryCopy') and isinstance(payload['legacyRecoveryCopy'], dict):
+        rows.append(payload['legacyRecoveryCopy'])
+    if not rows:
+        return jsonify(ok=False, error='no_entries_found'), 400
+    if len(rows) > 1000:
+        return jsonify(ok=False, error='too_many_entries'), 413
+
+    db = get_db()
+    restored = skipped = 0
+    stamp = now()
+    allowed_moods = {x.lower() for x in _journal_moods()} | {'thoughts','grateful','happy','calm','excited','sad','angry','hopeful','proud','tired'}
+    for item in rows:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        title = str(item.get('title') or '').strip()[:140]
+        body = str(item.get('body') or '')
+        if len(body) > 1_000_000 or (not title and not body.strip()):
+            skipped += 1
+            continue
+        title = title or datetime.now(timezone.utc).strftime('%d %B %Y')
+        mood = str(item.get('mood') or 'morning').strip()[:40]
+        if mood.lower() not in allowed_moods:
+            mood = 'morning'
+        cover = str(item.get('cover_color') or item.get('coverColor') or 'cream').strip().lower()
+        if cover not in {'cream','lime','aqua','orange','pink','blue','sun'}:
+            cover = 'cream'
+        tags = str(item.get('tags') or '').strip()[:240]
+        existing = db.execute('SELECT id FROM journal_entries WHERE user_id=? AND title=? AND body=? LIMIT 1', (user['id'], title, body)).fetchone()
+        if existing:
+            skipped += 1
+            continue
+        created_at = str(item.get('created_at') or item.get('createdAt') or stamp)[:80]
+        cur = db.execute('INSERT INTO journal_entries(user_id,title,body,mood,tags,cover_color,segments_json,favorite,archived,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                         (user['id'], title, body, mood, tags, cover, str(item.get('segments_json') or '[]')[:20000],
+                          1 if item.get('favorite') else 0, 1 if item.get('archived') else 0, created_at, stamp))
+        restored += 1
+    db.commit()
+    response = jsonify(ok=True, restored=restored, skipped=skipped, message='Backup merged without replacing existing pages.')
+    response.headers['Cache-Control'] = 'no-store, private, max-age=0'
+    return response
+
+
 @bp.get('/my-stuff/journal/settings')
 def my_stuff_journal_settings():
     user=_current_user_for_stuff()
@@ -1444,7 +1574,8 @@ def my_stuff_journal_save():
     if blocked: return blocked
     db=get_db(); entry_id=request.form.get('entry_id','').strip(); title=request.form.get('title','').strip()[:140]
     body=request.form.get('body','').strip(); mood=request.form.get('mood','morning').strip().lower(); segments_json=request.form.get('segments_json','').strip(); tags=request.form.get('tags','').strip()[:240]; cover_color=request.form.get('cover_color','cream').strip().lower()
-    if mood not in _journal_moods(): mood='morning'
+    allowed_moods = {x.lower() for x in _journal_moods()} | {'thoughts','grateful','happy','calm','excited','sad','angry','hopeful','proud','tired'}
+    if mood.lower() not in allowed_moods: mood='morning'
     if cover_color not in {'cream','lime','aqua','orange','pink','blue','sun'}: cover_color='cream'
     clean_tags=', '.join([x.strip()[:30] for x in tags.split(',') if x.strip()][:8])
     if not title:
